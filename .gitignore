@@ -1,0 +1,44 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+venv/
+.env
+
+# Model weights (这些是大文件！)
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.h5
+models/
+
+# Cached files
+.cache/
+*.cache
+huggingface/
+
+# Generated files
+*.png
+*.jpg
+*.jpeg
+*.webp
+outputs/
+generated/
+
+# Data files
+*.json
+*.parquet
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
