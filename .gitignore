@@ -1,0 +1,7 @@
+*.pyc
+
+*.png
+
+*.json
+
+/sdxl/models

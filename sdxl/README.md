@@ -73,7 +73,7 @@ python app.py
 
 ## 🧭 Workflow
 
-1. Generate：选择风格 + 场景描述 → 生成 v0
+1. Generate：选择风格 + 输入“场景/诗词”（支持多行，自动抽取意象增强提示词）→ 生成 v0
 2. Edit：在 Editor 上画 mask → 输入 edit instruction → 多轮编辑生成 v1/v2...
 3. History：点击缩略图回退 → 在旧版本继续编辑
 4. Import（可选）：用 `Import Base Image` 上传任意图片作为当前 base（解决 ImageEditor upload 在 Windows 下不稳定的问题）

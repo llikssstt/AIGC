@@ -60,6 +60,9 @@ def create_app() -> FastAPI:
         style_presets=settings.prompts.style_presets,
         negative_prompt=settings.prompts.negative_prompt,
         inpaint_negative_append=settings.prompts.inpaint_negative_append,
+        poetry_enabled=settings.prompts.poetry_enabled,
+        poetry_preamble=settings.prompts.poetry_preamble,
+        poetry_negative_append=settings.prompts.poetry_negative_append,
     )
     mask_processor = MaskProcessor()
     engine = SDXLEngine(

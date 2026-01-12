@@ -25,7 +25,8 @@ def _requests_session() -> requests.Session:
 def _image_editor_value(background: Optional[Image.Image]) -> Optional[dict]:
     if background is None:
         return None
-    return {"background": background, "layers": [], "composite": None}
+    bg = background.convert("RGB")
+    return {"background": bg, "layers": [], "composite": bg}
 
 
 def _file_like_to_path(value: Any) -> Optional[str]:
@@ -164,7 +165,11 @@ def build_demo() -> gr.Blocks:
                         value=list(settings.prompts.style_presets.keys())[0],
                         label="Style",
                     )
-                    scene = gr.Textbox(label="Scene Text")
+                    scene = gr.Textbox(
+                        label="Scene / Poem",
+                        placeholder="输入一句话或一首诗（支持多行）。系统会自动抽取意象并增强提示词。",
+                        lines=4,
+                    )
                     seed = gr.Number(value=-1, precision=0, label="Seed (-1 random)")
                     steps = gr.Slider(10, 80, value=settings.defaults.generate_steps, step=1, label="Steps")
                     cfg = gr.Slider(1.0, 20.0, value=settings.defaults.generate_cfg, step=0.1, label="CFG")
@@ -293,4 +298,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

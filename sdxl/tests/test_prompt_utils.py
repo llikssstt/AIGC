@@ -52,3 +52,31 @@ def test_prompt_compiler_import_card():
     card = compiler.import_card()
     assert card["edit_type"] == "import"
     assert card["final_prompt"] == ""
+
+
+def test_prompt_compiler_poetry_auto_mode():
+    compiler = PromptCompiler(
+        style_presets={"水墨": "INK_STYLE"},
+        negative_prompt="NEG",
+        inpaint_negative_append=", INP",
+    )
+
+    poem = "床前明月光，疑是地上霜。\n举头望明月，低头思故乡。"
+    bundle = compiler.compile_generation("水墨", poem)
+    assert "poetic scene" in bundle.final_prompt
+    assert "moon" in bundle.final_prompt
+    assert "frost" in bundle.final_prompt
+    assert bundle.negative_prompt.startswith("NEG")
+
+
+def test_prompt_compiler_poetry_li_bai_wine_moon_shadow():
+    compiler = PromptCompiler(
+        style_presets={"水墨": "INK_STYLE"},
+        negative_prompt="NEG",
+        inpaint_negative_append=", INP",
+    )
+    poem = "举杯邀明月，对影成三人。"
+    bundle = compiler.compile_generation("水墨", poem)
+    assert "wine cup" in bundle.final_prompt
+    assert "shadow" in bundle.final_prompt
+    assert "full moon" in bundle.final_prompt

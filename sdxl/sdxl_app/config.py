@@ -97,6 +97,14 @@ class PromptSettings(BaseModel):
     negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
     inpaint_negative_append: str = INPAINT_NEGATIVE_APPEND
 
+    # Poetry mode (for Chinese poem / lyrical input)
+    poetry_enabled: bool = True
+    poetry_preamble: str = (
+        "poetic scene, visual storytelling, interpret the imagery and mood, "
+        "do not include any text or calligraphy"
+    )
+    poetry_negative_append: str = ", calligraphy, chinese characters, letters, words, subtitles"
+
 
 class DownloadSettings(BaseModel):
     models_dir: Path = Field(default_factory=lambda: Path("models"))
@@ -209,6 +217,9 @@ def _apply_env_overrides(data: Dict[str, Any], env_prefix: str) -> None:
         "RUNTIME_ENABLE_VAE_TILING": ("runtime", "enable_vae_tiling"),
         "SESSIONS_DIR": ("storage", "sessions_dir"),
         "MODELS_DIR": ("download", "models_dir"),
+        "PROMPTS_POETRY_ENABLED": ("prompts", "poetry_enabled"),
+        "PROMPTS_POETRY_PREAMBLE": ("prompts", "poetry_preamble"),
+        "PROMPTS_POETRY_NEGATIVE_APPEND": ("prompts", "poetry_negative_append"),
         "LOG_LEVEL": ("log_level",),
     }
 
@@ -217,4 +228,3 @@ def _apply_env_overrides(data: Dict[str, Any], env_prefix: str) -> None:
         if name not in os.environ:
             continue
         _deep_set(data, path, os.environ[name])
-
