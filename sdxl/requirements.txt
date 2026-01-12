@@ -1,0 +1,36 @@
+# ============================================================
+# SDXL Inpainting Editor - Requirements
+# ============================================================
+# Python 3.10+ required
+
+# Diffusers ecosystem
+diffusers>=0.25.0
+transformers>=4.36.0
+accelerate>=0.25.0
+safetensors>=0.4.0
+
+# Image processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# API backend
+fastapi>=0.109.0
+uvicorn[standard]>=0.25.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+
+# Frontend
+gradio>=6.0.0
+
+# Optional: YAML config support
+pyyaml>=6.0
+
+# Evaluation metrics
+scikit-image>=0.22.0
+
+# Optional: Database for session management
+# sqlite3 is built-in
+
+# Optional: Logging
+rich>=13.0.0
