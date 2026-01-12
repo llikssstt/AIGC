@@ -4,4 +4,4 @@
 
 *.json
 
-/sdxl/models
+models
