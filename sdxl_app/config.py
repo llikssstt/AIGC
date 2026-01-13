@@ -105,6 +105,13 @@ class PromptSettings(BaseModel):
     )
     poetry_negative_append: str = ", calligraphy, chinese characters, letters, words, subtitles"
 
+    # LLM 配置（用于古诗理解）
+    llm_enabled: bool = True  # 启用 LLM 增强
+    llm_base_url: str = "http://localhost:8001/v1"  # vLLM OpenAI 兼容端点
+    llm_model: str = "Qwen3-1.7B"  # 模型名称
+    llm_api_key: str = "EMPTY"  # vLLM 不需要真实 key
+    llm_timeout: float = 30.0  # 超时秒数
+
 
 class DownloadSettings(BaseModel):
     models_dir: Path = Field(default_factory=lambda: Path("models"))

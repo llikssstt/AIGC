@@ -26,6 +26,9 @@ gradio>=6.0.0
 # Optional: YAML config support
 pyyaml>=6.0
 
+# LLM integration
+httpx>=0.27.0
+
 # Evaluation metrics
 scikit-image>=0.22.0
 

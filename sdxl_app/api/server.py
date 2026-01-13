@@ -13,6 +13,7 @@ from sdxl_app.config import get_settings
 from sdxl_app.engine.sdxl_engine import SDXLEngine, GenerateRequest, InpaintRequest
 from sdxl_app.engine.prompt_utils import PromptCompiler
 from sdxl_app.engine.mask_utils import MaskProcessor
+from sdxl_app.engine.llm_service import get_llm_service
 from sdxl_app.storage.session_store import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,15 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     session_mgr = SessionManager(settings.storage.sessions_dir)
+    llm_service = None
+    if settings.prompts.llm_enabled:
+        llm_service = get_llm_service(
+            base_url=settings.prompts.llm_base_url,
+            model=settings.prompts.llm_model,
+            api_key=settings.prompts.llm_api_key,
+            timeout=settings.prompts.llm_timeout,
+        )
+
     prompt_compiler = PromptCompiler(
         style_presets=settings.prompts.style_presets,
         negative_prompt=settings.prompts.negative_prompt,
@@ -63,6 +73,7 @@ def create_app() -> FastAPI:
         poetry_enabled=settings.prompts.poetry_enabled,
         poetry_preamble=settings.prompts.poetry_preamble,
         poetry_negative_append=settings.prompts.poetry_negative_append,
+        llm_service=llm_service,
     )
     mask_processor = MaskProcessor()
     engine = SDXLEngine(

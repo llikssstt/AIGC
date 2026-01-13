@@ -1,11 +1,20 @@
+# ============================================================
+# Prompt Utils - 纯 LLM 版本（无静态词典）
+# ============================================================
+"""
+使用 LLM 理解中文古诗并生成 SDXL prompt。
+"""
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Literal, TYPE_CHECKING
 import re
-from typing import Any, Dict, Optional, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +53,8 @@ class PromptCard(BaseModel):
 
 
 class PromptCompiler:
+    """纯 LLM 驱动的 Prompt 编译器"""
+
     def __init__(
         self,
         style_presets: Dict[str, str],
@@ -56,6 +67,7 @@ class PromptCompiler:
             "do not include any text or calligraphy"
         ),
         poetry_negative_append: str = ", calligraphy, chinese characters, letters, words, subtitles",
+        llm_service: Optional["LLMService"] = None,
     ):
         self.style_presets = dict(style_presets)
         self.negative_prompt = negative_prompt
@@ -63,6 +75,7 @@ class PromptCompiler:
         self.poetry_enabled = poetry_enabled
         self.poetry_preamble = poetry_preamble
         self.poetry_negative_append = poetry_negative_append
+        self.llm_service = llm_service
 
     def available_styles(self) -> list[str]:
         return sorted(self.style_presets.keys())
@@ -74,64 +87,193 @@ class PromptCompiler:
         global_prompt = self.style_presets[style_preset].strip()
         scene_text = (scene_text or "").strip()
 
+        # 检测是否为古诗/中文输入
         if self.poetry_enabled and self._looks_like_poetry(scene_text):
             return self.compile_poetry(style_preset=style_preset, poem_text=scene_text)
 
+        # 普通英文输入
         final_prompt = f"{global_prompt}, {scene_text}" if scene_text else global_prompt
         neg = self.negative_prompt
         return PromptBundle(global_prompt=global_prompt, final_prompt=final_prompt, negative_prompt=neg, meta={})
 
     def compile_poetry(self, *, style_preset: str, poem_text: str) -> PromptBundle:
         """
-        Poetry mode:
-        - 不把原诗句直接塞进 prompt（降低“生成文字”的概率）
-        - 从诗句中抽取意象/时间/季节/氛围，转成更 SDXL 友好的英文视觉标签
+        使用 LLM 理解古诗并生成 prompt。
+        如果 LLM 不可用，返回简化的基础 prompt。
         """
         if style_preset not in self.style_presets:
             raise ValueError(f"Unknown style_preset: {style_preset}")
 
         global_prompt = self.style_presets[style_preset].strip()
         poem_raw = (poem_text or "").strip()
-        poem_norm = _normalize_poem(poem_raw)
 
-        tags, meta = _extract_poetry_meta(poem_norm)
+        llm_error: Optional[str] = None
+        llm_raw: str = ""
+
+        # 使用 LLM 理解古诗
+        if self.llm_service:
+            try:
+                llm_result = self.llm_service.interpret_poetry(poem_raw, style_preset)
+                if llm_result:
+                    llm_raw = (getattr(llm_result, "raw_response", "") or "")[:2000]
+                    scene = (llm_result.scene_description or "").strip()
+                    # 解析失败/输出不规范时，尽量从 raw_response 兜底一个可用的 scene
+                    if not scene:
+                        scene = self._salvage_scene_from_raw(getattr(llm_result, "raw_response", "")) or ""
+
+                    parts = [global_prompt, self.poetry_preamble]
+                    if scene:
+                        parts.append(scene)
+                    if llm_result.visual_elements:
+                        parts.extend([e for e in llm_result.visual_elements[:5] if e])
+                    if llm_result.mood:
+                        parts.append(llm_result.mood)
+                    parts.append("Chinese poetry scene")
+
+                    # 只要 LLM 至少给出了 scene/elements/mood 任一项，就认为可用
+                    if scene or llm_result.visual_elements or llm_result.mood:
+                        final_prompt = ", ".join([p for p in parts if p])
+                        neg = self.negative_prompt + self.poetry_negative_append
+                        meta = {
+                            "input_kind": "poetry_llm",
+                            "poem_raw": poem_raw,
+                            "llm_scene": scene,
+                            "llm_elements": llm_result.visual_elements,
+                            "llm_mood": llm_result.mood,
+                            "llm_raw": llm_raw,
+                        }
+                        logger.info("LLM 古诗理解成功")
+                        return PromptBundle(
+                            global_prompt=global_prompt,
+                            final_prompt=final_prompt,
+                            negative_prompt=neg,
+                            meta=meta,
+                        )
+            except Exception as e:
+                llm_error = str(e)
+                logger.warning("LLM 古诗理解失败: %s", e)
+
+        # LLM 不可用/失败时：本地抽取一些常见意象，避免 prompt 过于空泛
+        elements = self._extract_poetry_elements(poem_raw)
         parts = [global_prompt, self.poetry_preamble]
-        parts.extend(tags)
+        parts.extend(elements[:6])
+        parts.append("Chinese poetry scene")
         final_prompt = ", ".join([p for p in parts if p])
-
         neg = self.negative_prompt + self.poetry_negative_append
-        extra_neg = meta.get("poetry_negative_terms") if isinstance(meta, dict) else None
-        if isinstance(extra_neg, list) and extra_neg:
-            neg += ", " + ", ".join([str(x) for x in extra_neg if x])
-        meta = {**meta, "input_kind": "poetry", "poem_raw": poem_raw}
+        meta: Dict[str, Any] = {
+            "input_kind": "poetry_fallback",
+            "poem_raw": poem_raw,
+            "fallback_elements": elements[:12],
+        }
+        if llm_error:
+            meta["llm_error"] = llm_error
+        if llm_raw:
+            meta["llm_raw"] = llm_raw
         return PromptBundle(global_prompt=global_prompt, final_prompt=final_prompt, negative_prompt=neg, meta=meta)
 
     def _looks_like_poetry(self, text: str) -> bool:
         if not text:
             return False
-        # 多行/常见诗词标点/明显中文字符 → 进入诗词增强模式
+        # 多行/常见诗词标点/明显中文字符 → 进入诗词模式
         if "\n" in text:
             return True
         if any(p in text for p in ("，", "。", "；", "！", "？")):
-            return _contains_cjk(text)
-        # 纯中文短句也有可能是“诗意一句话”
-        return _contains_cjk(text) and len(text) <= 80
+            return any("\u4e00" <= c <= "\u9fff" for c in text)
+        # 纯中文短句
+        return any("\u4e00" <= c <= "\u9fff" for c in text) and len(text) <= 80
+
+    def _extract_poetry_elements(self, poem_raw: str) -> list[str]:
+        """
+        在没有 LLM 时，从古诗文本中做非常轻量的意象抽取。
+        目标：给 SDXL 足够的视觉锚点（如 moon/frost/wine cup/shadow），避免仅剩泛化词。
+        """
+        text = (poem_raw or "").strip()
+        if not text:
+            return []
+
+        rules: list[tuple[list[str], str]] = [
+            (["明月", "望明月", "月"], "full moon"),
+            (["月光"], "moonlight"),
+            (["霜"], "frost"),
+            (["举杯", "杯", "酒"], "wine cup"),
+            (["对影", "影"], "shadow"),
+            (["床前", "窗前"], "moonlight on floor"),
+            (["故乡", "乡"], "homesickness"),
+            (["夜"], "night"),
+            (["雾", "烟"], "mist"),
+            (["山"], "misty mountains"),
+            (["江", "河", "水"], "river"),
+        ]
+
+        out: list[str] = []
+        for keys, tag in rules:
+            if any(k in text for k in keys) and tag not in out:
+                out.append(tag)
+
+        # 常见诗词默认补一个人物/氛围锚点（不强制）
+        if any(k in text for k in ("我", "独", "思", "愁", "邀")) and "solitary scholar" not in out:
+            out.append("solitary scholar")
+
+        return out
+
+    def _salvage_scene_from_raw(self, raw_response: str) -> str:
+        """
+        当模型未严格按 SCENE/ELEMENTS 格式输出时，尽量从原始文本中提取一个可用的 scene。
+        """
+        raw = (raw_response or "").strip()
+        if not raw:
+            return ""
+
+        # 去掉可能的 code fence
+        raw = re.sub(r"^```[a-zA-Z0-9_-]*\\n|\\n```$", "", raw).strip()
+        if not raw:
+            return ""
+
+        # 优先拿第一行/第一句作为 scene
+        first_line = raw.splitlines()[0].strip()
+        if not first_line:
+            return ""
+
+        # 如果第一行还是 "SCENE:" 这类前缀，剥掉
+        first_line = re.sub(r"^(scene)\\s*[:：\\-]\\s*", "", first_line, flags=re.IGNORECASE).strip()
+        # 控制长度：最多 25 个单词
+        words = first_line.split()
+        if len(words) > 25:
+            first_line = " ".join(words[:25])
+        return first_line
 
     def compile_edit(self, global_prompt: str, edit_text: str) -> PromptBundle:
+        """使用 LLM 翻译编辑指令"""
         global_prompt = (global_prompt or "").strip()
         edit_text = (edit_text or "").strip()
 
-        if global_prompt and edit_text:
-            final_prompt = f"{global_prompt}, {edit_text}, in the masked area only"
-        elif global_prompt and not edit_text:
+        # 使用 LLM 翻译
+        translated_edit = None
+        if self.llm_service and edit_text:
+            try:
+                translated_edit = self.llm_service.translate_edit(edit_text)
+                if translated_edit:
+                    logger.info("LLM 翻译: %s -> %s", edit_text, translated_edit)
+            except Exception as e:
+                logger.warning("LLM 翻译失败: %s", e)
+
+        # LLM 失败时，直接使用原文
+        if not translated_edit:
+            translated_edit = edit_text
+
+        # 构建 prompt
+        if translated_edit and global_prompt:
+            final_prompt = f"{translated_edit}, {global_prompt}, in the masked area only"
+        elif translated_edit:
+            final_prompt = f"{translated_edit}, in the masked area only"
+        elif global_prompt:
             final_prompt = f"{global_prompt}, in the masked area only"
-        elif (not global_prompt) and edit_text:
-            final_prompt = f"{edit_text}, in the masked area only"
         else:
             final_prompt = "in the masked area only"
 
         neg = self.negative_prompt + self.inpaint_negative_append
-        return PromptBundle(global_prompt=global_prompt, final_prompt=final_prompt, negative_prompt=neg, meta={})
+        meta = {"original_edit_text": edit_text, "translated_edit": translated_edit}
+        return PromptBundle(global_prompt=global_prompt, final_prompt=final_prompt, negative_prompt=neg, meta=meta)
 
     def generation_card(
         self,
@@ -197,9 +339,7 @@ class PromptCompiler:
         return card.model_dump()
 
     def import_card(self) -> dict[str, Any]:
-        """
-        导入图片版本的最小可复现卡片（无 prompt / 无采样参数）。
-        """
+        """导入图片版本的最小卡片"""
         card = PromptCard(
             edit_type="import",
             style_preset=None,
@@ -212,206 +352,3 @@ class PromptCompiler:
             cfg=0.0,
         )
         return card.model_dump()
-
-
-_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
-
-
-def _contains_cjk(text: str) -> bool:
-    return bool(_CJK_RE.search(text))
-
-
-def _normalize_poem(text: str) -> str:
-    # 统一分隔符，去掉多余空白
-    t = (text or "").strip()
-    t = t.replace("\r\n", "\n").replace("\r", "\n")
-    t = re.sub(r"[ \t]+", " ", t)
-    return t
-
-
-def _extract_poetry_meta(poem: str) -> tuple[list[str], dict[str, Any]]:
-    # 简单、可维护的意象词典（可后续挪到 YAML 配置）
-    lexicon = [
-        ("床前", "bedside"),
-        ("举杯", "raising a wine cup"),
-        ("对影", "facing his shadow"),
-        ("独酌", "drinking alone"),
-        ("明月", "bright moon"),
-        ("望月", "gazing at the moon"),
-        ("月", "moon"),
-        ("星", "stars"),
-        ("霜", "frost"),
-        ("雪", "snow"),
-        ("雨", "rain"),
-        ("风", "wind"),
-        ("云", "clouds"),
-        ("雾", "mist"),
-        ("烟", "haze"),
-        ("江", "river"),
-        ("湖", "lake"),
-        ("海", "sea"),
-        ("山", "mountains"),
-        ("松", "pine tree"),
-        ("竹", "bamboo"),
-        ("梅", "plum blossoms"),
-        ("柳", "willow"),
-        ("花", "flowers"),
-        ("草", "grass"),
-        ("舟", "boat"),
-        ("孤舟", "lonely boat"),
-        ("渔", "fisherman"),
-        ("寺", "temple"),
-        ("城", "ancient town"),
-        ("桥", "stone bridge"),
-        ("灯", "lantern"),
-        ("酒", "wine"),
-        ("杯", "wine cup"),
-        ("影", "shadow"),
-        ("三人", "three companions"),
-        ("剑", "sword"),
-        ("马", "horse"),
-    ]
-    lexicon.sort(key=lambda x: len(x[0]), reverse=True)
-
-    imagery: list[str] = []
-    matched: list[str] = []
-    for zh, en in lexicon:
-        if zh in poem:
-            imagery.append(en)
-            matched.append(zh)
-
-    # 时间/季节/情绪：非常轻量的规则，避免引入 LLM
-    time_tags: list[str] = []
-    if any(x in poem for x in ("夜", "月", "星", "霜")):
-        time_tags.append("night")
-    if any(x in poem for x in ("晓", "晨", "朝", "日出")):
-        time_tags.append("dawn")
-    if any(x in poem for x in ("夕", "暮", "黄昏", "落日")):
-        time_tags.append("sunset")
-
-    season_tags: list[str] = []
-    if "春" in poem:
-        season_tags.append("spring")
-    if "夏" in poem:
-        season_tags.append("summer")
-    if "秋" in poem:
-        season_tags.append("autumn")
-    if "冬" in poem:
-        season_tags.append("winter")
-
-    mood_tags: list[str] = []
-    if any(x in poem for x in ("思", "乡", "故", "归")):
-        mood_tags.append("nostalgic")
-    if any(x in poem for x in ("愁", "泪", "伤", "别")):
-        mood_tags.append("melancholic")
-    if any(x in poem for x in ("孤", "寂")):
-        mood_tags.append("lonely")
-    if any(x in poem for x in ("静", "清")):
-        mood_tags.append("tranquil")
-
-    # 诗词增强：额外补充一些“叙事/主体”标签（比纯名词更容易让模型画对）
-    has_moon = any(x in poem for x in ("月", "明月", "月光", "皓月"))
-    has_wine = any(x in poem for x in ("酒", "杯", "樽", "酌", "饮", "醉", "举杯"))
-    has_shadow = "影" in poem
-    has_three = "三人" in poem or ("三" in poem and "人" in poem)
-    has_person = any(x in poem for x in ("我", "君", "子", "翁", "客", "僧", "仙", "举杯", "独酌", "对影")) or has_wine
-
-    narrative_tags: list[str] = []
-    scene_phrases: list[str] = []
-    if has_person:
-        narrative_tags.extend(
-            [
-                "ancient Chinese poet",
-                "traditional hanfu robe",
-                "single human figure",
-                "ink wash figure painting",
-                "figure-focused composition",
-                "full-body shot",
-                "centered composition",
-                "minimal background",
-            ]
-        )
-    if has_wine:
-        narrative_tags.append("toasting with a wine cup")
-    if has_moon:
-        narrative_tags.append("bright full moon")
-        narrative_tags.append("moonlight")
-    if has_shadow:
-        narrative_tags.append("a clear shadow on the ground")
-    if has_three:
-        narrative_tags.append("three companions: the poet, the moon, and the shadow")
-
-    # 场景倾向：没有明确地名时，给一个“中性且合理”的场景
-    if has_person and has_moon and ("river" not in imagery) and ("mountains" not in imagery) and ("temple" not in imagery):
-        narrative_tags.append("quiet night courtyard")
-    # 月 + 酒 常见“浪漫/洒脱”氛围
-    if has_moon and has_wine:
-        mood_tags.append("romantic")
-        mood_tags.append("contemplative")
-
-    # 更“可画”的一句话场景描述（优先用于主体明确的诗句）
-    if has_person and has_moon and has_wine:
-        scene = "a lone ancient Chinese poet in hanfu raising a wine cup toward a bright full moon"
-        if has_shadow:
-            scene += ", his shadow clearly visible on the ground"
-        if has_three:
-            scene += ", symbolic three companions (poet, moon, shadow)"
-        scene_phrases.append(scene)
-    elif has_person and has_wine:
-        scene_phrases.append("a lone ancient Chinese poet drinking wine alone")
-    elif has_moon:
-        scene_phrases.append("a bright full moon in the night sky, quiet and tranquil")
-
-    # 去重并固定顺序
-    def uniq(items: list[str]) -> list[str]:
-        seen: set[str] = set()
-        out: list[str] = []
-        for it in items:
-            if it and it not in seen:
-                seen.add(it)
-                out.append(it)
-        return out
-
-    imagery = uniq(imagery)
-    time_tags = uniq(time_tags)
-    season_tags = uniq(season_tags)
-    mood_tags = uniq(mood_tags)
-    narrative_tags = uniq(narrative_tags)
-    scene_phrases = uniq(scene_phrases)
-
-    # 合成标签：先时间/季节/氛围，再意象
-    tags: list[str] = []
-    tags.extend(scene_phrases)
-    tags.extend(narrative_tags)
-    tags.extend(time_tags)
-    tags.extend(season_tags)
-    tags.extend(mood_tags)
-    tags.extend(imagery)
-
-    # 如果诗句主体明确但没提山水地景：适当压制“默认出山水”的倾向
-    negative_terms: list[str] = []
-    has_landscape = any(x in imagery for x in ("mountains", "river", "lake", "sea"))
-    if has_person and not has_landscape:
-        negative_terms.extend(
-            [
-                "landscape",
-                "mountains",
-                "river",
-                "scenery",
-                "wide shot",
-                "empty landscape",
-            ]
-        )
-    negative_terms = uniq(negative_terms)
-
-    meta: dict[str, Any] = {
-        "poetry_matched_zh": matched,
-        "poetry_tags": tags,
-        "poetry_scene": scene_phrases[0] if scene_phrases else None,
-        "poetry_narrative": narrative_tags,
-        "poetry_time": time_tags,
-        "poetry_season": season_tags,
-        "poetry_mood": mood_tags,
-        "poetry_negative_terms": negative_terms,
-    }
-    return tags, meta

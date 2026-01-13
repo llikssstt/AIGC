@@ -108,7 +108,7 @@ DEFAULT_GENERATE_PARAMS: Dict[str, Any] = {
 DEFAULT_EDIT_PARAMS: Dict[str, Any] = {
     "steps": 30,
     "cfg": 7.5,
-    "strength": 0.6,  # 推荐范围：微调 0.35-0.50，替换主体 0.60-0.75
+    "strength": 0.85,  # 替换主体推荐 0.75-0.90，微调推荐 0.35-0.55
     "seed": -1,
     "grow_pixels": 8,      # mask 膨胀像素
     "blur_sigma": 12.0,    # 羽化高斯模糊 sigma

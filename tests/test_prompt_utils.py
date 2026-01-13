@@ -80,3 +80,29 @@ def test_prompt_compiler_poetry_li_bai_wine_moon_shadow():
     assert "wine cup" in bundle.final_prompt
     assert "shadow" in bundle.final_prompt
     assert "full moon" in bundle.final_prompt
+
+
+def test_prompt_compiler_poetry_llm_salvage_scene_from_raw():
+    class DummyLLM:
+        def interpret_poetry(self, poem: str, style: str = "水墨"):
+            class R:
+                scene_description = ""
+                visual_elements = []
+                mood = ""
+                raw_response = "A scholar raising wine cup under full moon, shadow nearby"
+
+            return R()
+
+    compiler = PromptCompiler(
+        style_presets={"水墨": "INK_STYLE"},
+        negative_prompt="NEG",
+        inpaint_negative_append=", INP",
+        llm_service=DummyLLM(),
+    )
+
+    poem = "举杯邀明月，对影成三人。"
+    bundle = compiler.compile_generation("水墨", poem)
+    assert bundle.meta["input_kind"] == "poetry_llm"
+    assert "wine cup" in bundle.final_prompt
+    assert "shadow" in bundle.final_prompt
+    assert "full moon" in bundle.final_prompt
