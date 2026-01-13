@@ -99,10 +99,6 @@ class PromptSettings(BaseModel):
 
     # Poetry mode (for Chinese poem / lyrical input)
     poetry_enabled: bool = True
-    poetry_preamble: str = (
-        "poetic scene, visual storytelling, interpret the imagery and mood, "
-        "do not include any text or calligraphy"
-    )
     poetry_negative_append: str = ", calligraphy, chinese characters, letters, words, subtitles"
 
     # LLM 配置（用于古诗理解）

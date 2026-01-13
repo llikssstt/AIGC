@@ -1,6 +1,7 @@
 import argparse
 import logging
 import time
+import re
 from typing import List, Optional, Union, Dict, Any
 
 import uvicorn
@@ -31,6 +32,7 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 512
     stream: Optional[bool] = False
+    response_format: Optional[Dict[str, Any]] = None
 
 class ChatCompletionResponseChoice(BaseModel):
     index: int
@@ -71,16 +73,41 @@ async def chat_completions(req: ChatCompletionRequest):
 
     # 构造 prompt
     messages = [msg.model_dump() for msg in req.messages]
-    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    if req.response_format and req.response_format.get("type") == "json_object":
+        json_rule = (
+            "Return ONLY a valid JSON object. Do not include analysis, reasoning, "
+            "or <think> tags. No extra text."
+        )
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = f"{messages[0].get('content', '').rstrip()}\n\n{json_rule}"
+        else:
+            messages.insert(0, {"role": "system", "content": json_rule})
+    # Qwen3 supports enable_thinking to disable thought output.
+    try:
+        text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=not (req.response_format and req.response_format.get("type") == "json_object"),
+        )
+    except TypeError:
+        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     
     model_inputs = tokenizer([text], return_tensors="pt").to(model.device)
     
     # 生成
+    temperature = req.temperature
+    do_sample = True if temperature and temperature > 0 else False
+    if req.response_format and req.response_format.get("type") == "json_object":
+        # Force deterministic output when JSON is required.
+        temperature = 0.0
+        do_sample = False
+
     generated_ids = model.generate(
         model_inputs.input_ids,
         max_new_tokens=req.max_tokens,
-        temperature=req.temperature,
-        do_sample=True if req.temperature > 0 else False
+        temperature=temperature,
+        do_sample=do_sample
     )
     
     generated_ids = [
@@ -88,7 +115,12 @@ async def chat_completions(req: ChatCompletionRequest):
     ]
     
     response_text = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    
+    if req.response_format and req.response_format.get("type") == "json_object":
+        # Trim to the first JSON object if the model includes extra text.
+        match = re.search(r"\{.*\}", response_text, re.DOTALL)
+        if match:
+            response_text = match.group(0)
+
     return ChatCompletionResponse(
         model=MODEL_NAME,
         choices=[

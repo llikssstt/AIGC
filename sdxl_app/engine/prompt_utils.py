@@ -91,6 +91,39 @@ class PromptCompiler:
         if self.poetry_enabled and self._looks_like_poetry(scene_text):
             return self.compile_poetry(style_preset=style_preset, poem_text=scene_text)
 
+    """纯 LLM 驱动的 Prompt 编译器"""
+
+    def __init__(
+        self,
+        style_presets: Dict[str, str],
+        negative_prompt: str,
+        inpaint_negative_append: str,
+        *,
+        poetry_enabled: bool = True,
+        poetry_negative_append: str = ", calligraphy, chinese characters, letters, words, subtitles",
+        llm_service: Optional["LLMService"] = None,
+    ):
+        self.style_presets = dict(style_presets)
+        self.negative_prompt = negative_prompt
+        self.inpaint_negative_append = inpaint_negative_append
+        self.poetry_enabled = poetry_enabled
+        self.poetry_negative_append = poetry_negative_append
+        self.llm_service = llm_service
+
+    def available_styles(self) -> list[str]:
+        return sorted(self.style_presets.keys())
+
+    def compile_generation(self, style_preset: str, scene_text: str) -> PromptBundle:
+        if style_preset not in self.style_presets:
+            raise ValueError(f"Unknown style_preset: {style_preset}")
+
+        global_prompt = self.style_presets[style_preset].strip()
+        scene_text = (scene_text or "").strip()
+
+        # 检测是否为古诗/中文输入
+        if self.poetry_enabled and self._looks_like_poetry(scene_text):
+            return self.compile_poetry(style_preset=style_preset, poem_text=scene_text)
+
         # 普通英文输入
         final_prompt = f"{global_prompt}, {scene_text}" if scene_text else global_prompt
         neg = self.negative_prompt
@@ -98,78 +131,149 @@ class PromptCompiler:
 
     def compile_poetry(self, *, style_preset: str, poem_text: str) -> PromptBundle:
         """
-        使用 LLM 理解古诗并生成 prompt。
-        如果 LLM 不可用，返回简化的基础 prompt。
+        使用 LLM 理解古诗并生成分层 Prompt (Layered Prompt)。
         """
         if style_preset not in self.style_presets:
             raise ValueError(f"Unknown style_preset: {style_preset}")
 
-        global_prompt = self.style_presets[style_preset].strip()
+        # 基础风格 (Base Style) - 放在最后或作为底层
+        global_style = self.style_presets[style_preset].strip()
         poem_raw = (poem_text or "").strip()
 
         llm_error: Optional[str] = None
         llm_raw: str = ""
+        
+        # 默认分层结构
+        layers = {
+            "subject": "",
+            "action": "",
+            "composition": "medium shot, centralized composition",
+            "environment": "",
+            "mood": "",
+            "style": global_style,
+        }
+        elements = []
+        interpretation_subject_description = "" # To store LLM's subject description for negative prompt logic
+        llm_has_content = False
 
-        # 使用 LLM 理解古诗
         if self.llm_service:
             try:
-                llm_result = self.llm_service.interpret_poetry(poem_raw, style_preset)
-                if llm_result:
-                    llm_raw = (getattr(llm_result, "raw_response", "") or "")[:2000]
-                    scene = (llm_result.scene_description or "").strip()
-                    # 解析失败/输出不规范时，尽量从 raw_response 兜底一个可用的 scene
-                    if not scene:
-                        scene = self._salvage_scene_from_raw(getattr(llm_result, "raw_response", "")) or ""
+                interpretation = self.llm_service.interpret_poetry(poem_raw, style_preset)
+                if interpretation:
+                    llm_raw = interpretation.raw_response
+                    interpretation_subject_description = interpretation.subject_description or ""
+                    if interpretation_subject_description and interpretation_subject_description.lower() != "none":
+                        llm_has_content = True
+                    
+                    # 1. Subject Layer (最为重要，加权)
+                    if interpretation_subject_description and interpretation_subject_description.lower() not in ("none", "no humans"):
+                        layers["subject"] = f"({interpretation_subject_description}:1.3)"
+                    else:
+                        layers["subject"] = "" # 明确无人
 
-                    parts = [global_prompt, self.poetry_preamble]
-                    if scene:
-                        parts.append(scene)
-                    if llm_result.visual_elements:
-                        parts.extend([e for e in llm_result.visual_elements[:5] if e])
-                    if llm_result.mood:
-                        parts.append(llm_result.mood)
-                    parts.append("Chinese poetry scene")
+                    # 2. Action Layer
+                    if interpretation.action_description and interpretation.action_description.lower() != "none":
+                        layers["action"] = interpretation.action_description
+                        llm_has_content = True
 
-                    # 只要 LLM 至少给出了 scene/elements/mood 任一项，就认为可用
-                    if scene or llm_result.visual_elements or llm_result.mood:
-                        final_prompt = ", ".join([p for p in parts if p])
-                        neg = self.negative_prompt + self.poetry_negative_append
-                        meta = {
-                            "input_kind": "poetry_llm",
-                            "poem_raw": poem_raw,
-                            "llm_scene": scene,
-                            "llm_elements": llm_result.visual_elements,
-                            "llm_mood": llm_result.mood,
-                            "llm_raw": llm_raw,
-                        }
-                        logger.info("LLM 古诗理解成功")
-                        return PromptBundle(
-                            global_prompt=global_prompt,
-                            final_prompt=final_prompt,
-                            negative_prompt=neg,
-                            meta=meta,
-                        )
+                    # 3. Environment Layer
+                    if interpretation.environment_description:
+                        layers["environment"] = interpretation.environment_description
+                        llm_has_content = True
+
+                    # 4. Composition Layer
+                    if interpretation.composition_description:
+                        layers["composition"] = interpretation.composition_description
+
+                    # 5. Mood Layer
+                    if interpretation.mood_description:
+                        layers["mood"] = interpretation.mood_description
+                        llm_has_content = True
+
+                    # 6. Elements
+                    elements = interpretation.visual_elements
+                    if elements:
+                        llm_has_content = True
+
+                    logger.info("LLM 古诗分层理解成功: %s", layers)
             except Exception as e:
                 llm_error = str(e)
                 logger.warning("LLM 古诗理解失败: %s", e)
 
-        # LLM 不可用/失败时：本地抽取一些常见意象，避免 prompt 过于空泛
-        elements = self._extract_poetry_elements(poem_raw)
-        parts = [global_prompt, self.poetry_preamble]
-        parts.extend(elements[:6])
-        parts.append("Chinese poetry scene")
-        final_prompt = ", ".join([p for p in parts if p])
+        # 如果 LLM 失败，回退到简单的规则抽取
+        if not layers["subject"] and not layers["environment"] and not llm_has_content:
+            fallback_elements = self._extract_poetry_elements(poem_raw)
+            # 尝试简单归类
+            env_keywords = ["mountains", "river", "moon", "snow", "mist"]
+            subj_keywords = ["scholar", "fisherman", "boat", "old man"] # Added "old man"
+            
+            env_parts = [e for e in fallback_elements if any(k in e for k in env_keywords)]
+            subj_parts = [e for e in fallback_elements if any(k in e for k in subj_keywords)]
+            
+            if subj_parts:
+                layers["subject"] = f"({', '.join(subj_parts)}:1.2)"
+            if env_parts:
+                layers["environment"] = ", ".join(env_parts)
+            
+            elements = fallback_elements
+            if llm_raw and not llm_error:
+                llm_error = "LLM returned no usable fields; fallback applied."
+
+        # === 组装 Prompt (Sandwich Logic) ===
+        # 顺序: Subject > Action > Composition > Environment > Mood > Style > Elements
+        prompt_parts = []
+        
+        if layers["subject"]:
+            prompt_parts.append(layers["subject"])
+        
+        if layers["action"]:
+            prompt_parts.append(layers["action"])
+            
+        if layers["composition"]:
+            prompt_parts.append(layers["composition"])
+            
+        if layers["environment"]:
+            prompt_parts.append(layers["environment"])
+            
+        if layers["mood"]:
+            prompt_parts.append(layers["mood"])
+
+        # Style 放在后面，防止冲淡主体
+        prompt_parts.append(layers["style"])
+        
+        # 补充 Elements (去重)
+        used_text = " ".join(prompt_parts).lower()
+        for elem in elements:
+            if elem.lower() not in used_text:
+                prompt_parts.append(elem)
+
+        prompt_parts.append("best quality, masterpiece")
+
+        final_prompt = ", ".join([p for p in prompt_parts if p])
+        
+        # 构建负面提示
         neg = self.negative_prompt + self.poetry_negative_append
-        meta: Dict[str, Any] = {
-            "input_kind": "poetry_fallback",
+        # 如果主体这一层明确是空的，确保负面提示里加上 no humans 强化无人
+        if not layers["subject"] and "no humans" in interpretation_subject_description.lower():
+             neg += ", humans, person, people, man, woman"
+        elif layers["subject"]:
+             # 有主体时，确保不要 prohibited "no humans"
+             neg = neg.replace("no humans,", "").replace("no characters,", "")
+
+        meta = {
+            "input_kind": "poetry_llm" if llm_has_content else "poetry_fallback",
             "poem_raw": poem_raw,
-            "fallback_elements": elements[:12],
+            "layers": layers,
+            "llm_raw": llm_raw,
+            "llm_error": llm_error
         }
-        if llm_error:
-            meta["llm_error"] = llm_error
-        if llm_raw:
-            meta["llm_raw"] = llm_raw
-        return PromptBundle(global_prompt=global_prompt, final_prompt=final_prompt, negative_prompt=neg, meta=meta)
+
+        return PromptBundle(
+            global_prompt=global_style,
+            final_prompt=final_prompt,
+            negative_prompt=neg,
+            meta=meta,
+        )
 
     def _looks_like_poetry(self, text: str) -> bool:
         if not text:
@@ -185,7 +289,6 @@ class PromptCompiler:
     def _extract_poetry_elements(self, poem_raw: str) -> list[str]:
         """
         在没有 LLM 时，从古诗文本中做非常轻量的意象抽取。
-        目标：给 SDXL 足够的视觉锚点（如 moon/frost/wine cup/shadow），避免仅剩泛化词。
         """
         text = (poem_raw or "").strip()
         if not text:
@@ -203,6 +306,10 @@ class PromptCompiler:
             (["雾", "烟"], "mist"),
             (["山"], "misty mountains"),
             (["江", "河", "水"], "river"),
+            (["雪"], "snow"),
+            (["孤舟", "舟", "船"], "small boat"),
+            (["翁", "老"], "old man"),
+            (["钓"], "fishing"),
         ]
 
         out: list[str] = []
@@ -210,43 +317,16 @@ class PromptCompiler:
             if any(k in text for k in keys) and tag not in out:
                 out.append(tag)
 
-        # 常见诗词默认补一个人物/氛围锚点（不强制）
-        if any(k in text for k in ("我", "独", "思", "愁", "邀")) and "solitary scholar" not in out:
-            out.append("solitary scholar")
-
         return out
 
     def _salvage_scene_from_raw(self, raw_response: str) -> str:
-        """
-        当模型未严格按 SCENE/ELEMENTS 格式输出时，尽量从原始文本中提取一个可用的 scene。
-        """
-        raw = (raw_response or "").strip()
-        if not raw:
-            return ""
-
-        # 去掉可能的 code fence
-        raw = re.sub(r"^```[a-zA-Z0-9_-]*\\n|\\n```$", "", raw).strip()
-        if not raw:
-            return ""
-
-        # 优先拿第一行/第一句作为 scene
-        first_line = raw.splitlines()[0].strip()
-        if not first_line:
-            return ""
-
-        # 如果第一行还是 "SCENE:" 这类前缀，剥掉
-        first_line = re.sub(r"^(scene)\\s*[:：\\-]\\s*", "", first_line, flags=re.IGNORECASE).strip()
-        # 控制长度：最多 25 个单词
-        words = first_line.split()
-        if len(words) > 25:
-            first_line = " ".join(words[:25])
-        return first_line
+        # Deprecated: No longer needed with structured JSON
+        return ""
 
     def compile_edit(self, global_prompt: str, edit_text: str) -> PromptBundle:
         """使用 LLM 翻译编辑指令"""
         global_prompt = (global_prompt or "").strip()
         edit_text = (edit_text or "").strip()
-
         # 使用 LLM 翻译
         translated_edit = None
         if self.llm_service and edit_text:

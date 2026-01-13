@@ -43,29 +43,20 @@ STYLE_PRESETS: Dict[str, str] = {
     "水墨": (
         "traditional Chinese ink wash painting, shuimo style, "
         "flowing ink strokes, elegant brushwork, monochrome with subtle color gradients, "
-        # 删除 "misty atmosphere" 防止画面过空
-        # 增加以下内容，强调人物与景的结合
-        "emphasis on integrating figures into the ink environment, " 
-        "narrative composition based on the prompt, "
-        "xieyi freehand style capturing the spirit, rice paper texture, "
-        "masterpiece, best quality, highly detailed"
+        "xieyi freehand style, rice paper texture, "
+        "highly detailed, masterpiece, best quality"
     ),
     "工笔": (
-        # 工笔通常问题不大，因为它本身就强调细节，适合画人物。保持现状或微调即可。
         "Chinese gongbi meticulous painting style, fine brushwork, "
-        "delicate lines, rich colors, detailed rendering of figures and setting, " # 强调人物和背景的渲染
-        "silk painting texture, exquisite details, traditional pigments, "
-        "masterpiece, best quality, highly detailed"
+        "delicate lines, rich colors, intricate details, "
+        "silk painting texture, traditional pigments, "
+        "highly detailed, masterpiece, best quality"
     ),
     "青绿": (
-        "Chinese qinglv style painting, " # 删掉了 "landscape" (山水)
+        "Chinese qinglv style painting, blue and green landscape painting, "
         "mineral pigments, azurite blue and malachite green, "
         "Tang dynasty aesthetic, golden outlines, "
-        # 删掉了 "layered mountains", "panoramic composition" (层峦叠嶂，全景)
-        # 增加以下内容，强调场景构成
-        "rich colors applied to the subject matter, decorative clouds, "
-        "composed scene focusing on the poem's action, " 
-        "masterpiece, best quality, highly detailed"
+        "decorative style, highly detailed, masterpiece, best quality"
     ),
 }
 
