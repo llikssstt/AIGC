@@ -1,16 +1,18 @@
-# SDXL Inpainting & Multi-Round Editor (Local)
+# 古诗·绘意 Digital Ink & Poetry
 
 本项目是一个本地 SDXL 应用，结合了 **React 前端**、**FastAPI 后端** 和 **本地 LLM (Qwen)**，支持：
-文生图 (古诗理解) → 标注 mask → 多轮局部编辑 → 历史回退。
+文生图 (古诗理解) → 标注 mask → 多轮局部编辑 → 历史回退 → 画廊浏览。
 
 ## ✨ Features
 
-- **Prompt Optimization**: 内置 LLM (Qwen) 理解古诗词，自动生成结构化 prompt (Subject/Action/Composition/Mood)。
-- **Generate + Inpaint**: 同一套 API 支持 `text2img` 与 `inpaint`。
-- **Modern UI**: 基于 React + Vite 的现代化前端，支持图层蒙版编辑。
-- **Mask Processing**: grow / feather / invert + alpha blend 后融合。
-- **Session & History**: 多轮版本、回退、缩略图。
-- **Stable**: fp16-only，支持 VRAM 优化。
+- **🎨 三种国风风格**: 水墨、工笔、青绿，一键切换
+- **📝 Prompt Optimization**: 内置 LLM (Qwen) 理解古诗词，自动生成结构化 prompt
+- **🖼️ Generate + Inpaint**: 同一套 API 支持 `text2img` 与 `inpaint`
+- **✏️ Canvas Mask Editor**: 可视化蒙版绘制，支持膨胀/羽化/反转
+- **📚 Gallery**: 画廊展示所有历史作品，支持继续编辑
+- **🔄 Session & History**: 多轮版本、回退、缩略图
+- **⚙️ Advanced Parameters**: 可调 Seed / Steps / CFG / Strength 等参数
+- **🚀 一键启动**: PowerShell 脚本同时启动所有服务
 
 ## 🛠️ Installation
 
@@ -39,66 +41,73 @@ python scripts/download_models.py --clean
 ```
 
 ### LLM Model (Qwen)
-请下载 [Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) 或类似模型至 `models/Qwen...` 目录。
+请下载 [Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) 或类似模型至 `models/` 目录。
 
 ## 🚀 Run Application
 
-你需要开启 **三个终端** 分别运行以下服务：
+### 一键启动 (推荐)
+```powershell
+.\start_all.ps1
+```
+该脚本会自动打开三个终端窗口运行所有服务。
 
-### 1️⃣ Start LLM Server (Port 8001)
-负责古诗词理解与 Prompt 生成。
+### 手动启动
+如需单独启动各服务：
+
+**1️⃣ LLM Server (Port 8001)**
 ```bash
-# 根目录下
-python -m sdxl_app.engine.simple_llm_server --model models/Qwen2.5-1.5B-Instruct --port 8001
+python -m sdxl_app.engine.simple_llm_server --model models/Qwen3-1.7B --port 8001
 ```
 
-### 2️⃣ Start Backend Server (Port 8000)
-负责 SDXL 图像生成与 Session 管理。
+**2️⃣ Backend Server (Port 8000)**
 ```bash
-# 根目录下
 python server.py
-# 或 python -m sdxl_app.api.server
 ```
 
-### 3️⃣ Start Frontend (Port 5173)
-用户界面。
+**3️⃣ Frontend (Port 5173)**
 ```bash
 cd frontend
 npm run dev
 ```
+
 打开浏览器访问：`http://localhost:5173`
-
-## ⚙️ Configuration
-
-推荐使用环境变量或 YAML 配置。
-默认配置文件：`config.py`
-
-```yaml
-# 可选：sdxl.yaml
-prompts:
-  llm_enabled: true
-  llm_model: "Qwen2.5-1.5B-Instruct"
-
-models:
-  base_path: "models/stable-diffusion-xl-base-1.0"
-  inpaint_path: "models/stable-diffusion-xl-1.0-inpainting-0.1"
-```
 
 ## 🧭 Workflow
 
-1.  **输入诗词**：在输入框输入中文古诗（如“孤舟蓑笠翁”）。
-2.  **LLM 解析**：后端自动调用 LLM 解析主体、动作、意境，并生成英文 Prompt。
-3.  **生成 (Generate)**：SDXL 生成初版图像。
-4.  **编辑 (Edit)**：
-    -   在生成的图片上涂抹 Mask。
-    -   输入修改指令（如“换成红色衣服”）。
-    -   点击 Generate 进行局部重绘。
-5.  **历史 (History)**：随时点击下方缩略图回退到任意版本。
+1. **选择风格**: 水墨 / 工笔 / 青绿
+2. **输入诗词**: 在输入框输入中文古诗（如"孤舟蓑笠翁，独钓寒江雪"）
+3. **调整参数** (可选): 展开"高级参数"调整 Seed、Steps、CFG 等
+4. **生成**: 点击"生成意境"，等待 SDXL 生成图像
+5. **编辑**: 点击"编辑此图"进入编辑模式
+   - 涂抹需要修改的区域（红色蒙版）
+   - 输入修改指令（如"换成红色衣服"）
+   - 调整 Strength（0.3-0.5 微调，0.7-0.9 大改）
+   - 点击"应用修改"
+6. **查看历史**: 点击"历史"查看/回退到任意版本
+7. **画廊**: 在首页点击"画廊"浏览所有历史作品
+
+## 📁 Project Structure
+
+```
+AIGC/
+├── frontend/                 # React 前端
+│   └── src/
+│       ├── pages/           # 页面组件 (Creation, Edit, Gallery)
+│       ├── components/      # UI 组件 (InkButton, MaskCanvas, etc.)
+│       └── services/        # API 服务
+├── sdxl_app/                # 后端核心
+│   ├── api/server.py        # FastAPI 路由
+│   ├── engine/              # SDXL 引擎 + LLM 服务 + Prompt 编译
+│   └── storage/             # Session 存储管理
+├── models/                  # 模型文件 (SDXL, Qwen)
+├── storage/sessions/        # 生成的图片和元数据
+├── start_all.ps1            # 一键启动脚本
+└── server.py                # 后端入口
+```
 
 ## 🧯 Common Issues
 
--   **LLM Connection Refused**: 请确保 1 号终端 (`simple_llm_server`) 已启动并显示运行在 8001 端口。
--   **CUDA OOM**: 也就是显存不足。
-    -   尝试在 `config.py` 中开启 `enable_cpu_offload: true`。
-    -   考虑使用更小的 LLM (如 Qwen 0.5B) 或量化版本。
--   **Frontend API Error**: 检查 `frontend/.env` 或代码中的 API 地址是否指向 `http://localhost:8000`。
+- **LLM Connection Refused**: 确保 LLM Server 已启动并运行在 8001 端口
+- **CUDA OOM**: 显存不足，尝试使用更小的 LLM 或开启 CPU offload
+- **Prompt Truncated**: 正常现象，CLIP 限制 77 tokens，系统会自动截断
+- **画廊为空**: 需要先创作作品才会显示在画廊中
