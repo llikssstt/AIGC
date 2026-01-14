@@ -93,6 +93,16 @@ def create_app() -> FastAPI:
         engine.unload()
 
     app = FastAPI(title="SDXL Local API", lifespan=lifespan)
+    
+    from fastapi.middleware.cors import CORSMiddleware
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.post("/session/create", response_model=CreateSessionResponse)
     async def create_session():

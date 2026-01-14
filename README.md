@@ -1,109 +1,104 @@
 # SDXL Inpainting & Multi-Round Editor (Local)
 
-本项目是一个本地 SDXL 应用，支持：文生图 → 标注 mask → 多轮局部编辑 → 历史回退，并为每次生成/编辑输出可复现的参数卡片（JSON）。
+本项目是一个本地 SDXL 应用，结合了 **React 前端**、**FastAPI 后端** 和 **本地 LLM (Qwen)**，支持：
+文生图 (古诗理解) → 标注 mask → 多轮局部编辑 → 历史回退。
 
 ## ✨ Features
 
-- **Generate + Inpaint**: 同一套 API 支持 `text2img` 与 `inpaint`
-- **Mask Processing**: grow / feather / invert + alpha blend 后融合
-- **Prompt Card**: 统一 prompt 编译与可复现卡片（JSON）
-- **Session & History**: 多轮版本、回退、缩略图
-- **Stable Download**: fp16-only 下载策略 + 清理 + sanity check
-- **UI**: Gradio（默认避免 URL/本地路径喂组件，规避 Gradio 6 SSRF/路径问题）
+- **Prompt Optimization**: 内置 LLM (Qwen) 理解古诗词，自动生成结构化 prompt (Subject/Action/Composition/Mood)。
+- **Generate + Inpaint**: 同一套 API 支持 `text2img` 与 `inpaint`。
+- **Modern UI**: 基于 React + Vite 的现代化前端，支持图层蒙版编辑。
+- **Mask Processing**: grow / feather / invert + alpha blend 后融合。
+- **Session & History**: 多轮版本、回退、缩略图。
+- **Stable**: fp16-only，支持 VRAM 优化。
 
 ## 🛠️ Installation
 
+### 1. Backend (Python)
 - Python 3.10+
-- 建议 GPU：3090/A100；默认 fp16；支持 CPU fallback（慢）
+- 建议 GPU：3090/4090 (24GB VRAM 推荐，最少 12GB 可运行 FP16)
 
 ```bash
+# 根目录下
 pip install -r requirements.txt
 ```
 
-可选：运行单元测试
+### 2. Frontend (Node.js)
+- Node.js 18+
+
 ```bash
-pip install -r requirements-dev.txt
+cd frontend
+npm install
 ```
 
-## 📦 Download Models (fp16-only)
+## 📦 Download Models
 
+### SDXL Models
 ```bash
 python scripts/download_models.py --clean
 ```
 
-脚本会自动进行 sanity check，并给出环境变量/YAML 配置示例。
+### LLM Model (Qwen)
+请下载 [Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) 或类似模型至 `models/Qwen...` 目录。
 
-## ⚙️ Configuration (env / yaml)
+## 🚀 Run Application
 
-推荐用环境变量覆盖（Windows PowerShell 示例）：
-```powershell
-$env:SDXL_MODELS_BASE_PATH="E:\AIGC\sdxl\models\stable-diffusion-xl-base-1.0"
-$env:SDXL_MODELS_INPAINT_PATH="E:\AIGC\sdxl\models\stable-diffusion-xl-1.0-inpainting-0.1"
+你需要开启 **三个终端** 分别运行以下服务：
+
+### 1️⃣ Start LLM Server (Port 8001)
+负责古诗词理解与 Prompt 生成。
+```bash
+# 根目录下
+python -m sdxl_app.engine.simple_llm_server --model models/Qwen2.5-1.5B-Instruct --port 8001
 ```
 
-或使用 YAML：
+### 2️⃣ Start Backend Server (Port 8000)
+负责 SDXL 图像生成与 Session 管理。
+```bash
+# 根目录下
+python server.py
+# 或 python -m sdxl_app.api.server
+```
+
+### 3️⃣ Start Frontend (Port 5173)
+用户界面。
+```bash
+cd frontend
+npm run dev
+```
+打开浏览器访问：`http://localhost:5173`
+
+## ⚙️ Configuration
+
+推荐使用环境变量或 YAML 配置。
+默认配置文件：`config.py`
+
 ```yaml
+# 可选：sdxl.yaml
+prompts:
+  llm_enabled: true
+  llm_model: "Qwen2.5-1.5B-Instruct"
+
 models:
   base_path: "models/stable-diffusion-xl-base-1.0"
   inpaint_path: "models/stable-diffusion-xl-1.0-inpainting-0.1"
-runtime:
-  device: "cuda"
-  dtype: "fp16"
 ```
-
-然后：
-```bash
-# Windows CMD: set SDXL_CONFIG=sdxl.yaml
-# PowerShell: $env:SDXL_CONFIG="sdxl.yaml"
-```
-
-## 🚀 Run
-
-### 1) Start Backend (FastAPI)
-```bash
-python server.py
-```
-默认：`http://127.0.0.1:8000`
-
-### 2) Start UI (Gradio)
-```bash
-python app.py
-```
-默认：`http://127.0.0.1:7860`
 
 ## 🧭 Workflow
 
-1. Generate：选择风格 + 输入“场景/诗词”（支持多行，自动抽取意象增强提示词）→ 生成 v0
-2. Edit：在 Editor 上画 mask → 输入 edit instruction → 多轮编辑生成 v1/v2...
-3. History：点击缩略图回退 → 在旧版本继续编辑
-4. Import（可选）：用 `Import Base Image` 上传任意图片作为当前 base（解决 ImageEditor upload 在 Windows 下不稳定的问题）
-
-## ✅ Tests
-
-```bash
-pytest -q
-```
-
-## 📁 Project Structure (new)
-
-```
-sdxl/
-├─ app.py                      # Entry (Gradio) -> sdxl_app.ui.app
-├─ server.py                   # Entry (FastAPI) -> sdxl_app.api.server
-├─ sdxl_app/
-│  ├─ config.py                # env/yaml 统一配置 + 日志
-│  ├─ api/server.py            # FastAPI 路由
-│  ├─ engine/                  # 推理引擎 + prompt/mask
-│  ├─ storage/session_store.py # session/version 存储层
-│  └─ ui/app.py                # Gradio UI
-├─ scripts/download_models.py  # fp16-only 下载脚本
-├─ tests/                      # 单测骨架
-└─ legacy/                     # 旧版 app/server（保留参考）
-```
+1.  **输入诗词**：在输入框输入中文古诗（如“孤舟蓑笠翁”）。
+2.  **LLM 解析**：后端自动调用 LLM 解析主体、动作、意境，并生成英文 Prompt。
+3.  **生成 (Generate)**：SDXL 生成初版图像。
+4.  **编辑 (Edit)**：
+    -   在生成的图片上涂抹 Mask。
+    -   输入修改指令（如“换成红色衣服”）。
+    -   点击 Generate 进行局部重绘。
+5.  **历史 (History)**：随时点击下方缩略图回退到任意版本。
 
 ## 🧯 Common Issues
 
-- **Gradio 6 SSRF / 127.0.0.1 validation**：UI 端不把 URL 直接喂给组件，统一由 Python `requests` 拉取后以 PIL 更新组件。
-- **Windows 代理导致本地请求失败**：建议关闭系统代理，或设置 `NO_PROXY=localhost,127.0.0.1`。
-- **CUDA OOM**：降低分辨率/steps；开启 cpu offload；必要时改 `SDXL_RUNTIME_DTYPE=fp32`（更慢更耗显存）。
-- **xformers 缺失**：不影响功能，只是性能下降；可按你的 CUDA/torch 版本安装匹配的 xformers。
+-   **LLM Connection Refused**: 请确保 1 号终端 (`simple_llm_server`) 已启动并显示运行在 8001 端口。
+-   **CUDA OOM**: 也就是显存不足。
+    -   尝试在 `config.py` 中开启 `enable_cpu_offload: true`。
+    -   考虑使用更小的 LLM (如 Qwen 0.5B) 或量化版本。
+-   **Frontend API Error**: 检查 `frontend/.env` 或代码中的 API 地址是否指向 `http://localhost:8000`。
