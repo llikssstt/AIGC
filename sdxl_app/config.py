@@ -8,26 +8,19 @@ from typing import Any, Dict, Optional, Literal
 from pydantic import BaseModel, Field
 
 
+# Shortened to ~25 tokens each to leave room for scene content (CLIP max: 77 tokens)
 DEFAULT_STYLE_PRESETS: Dict[str, str] = {
     "水墨": (
-        "traditional Chinese ink wash painting, shuimo style, "
-        "flowing ink strokes, elegant brushwork, monochrome with subtle color gradients, "
-        "misty atmosphere, xieyi freehand style, rice paper texture, "
-        "masterpiece, best quality, highly detailed"
+        "Chinese ink wash painting, shuimo, flowing brushwork, "
+        "monochrome, misty, rice paper texture, masterpiece"
     ),
     "工笔": (
-        "Chinese gongbi meticulous painting style, fine brushwork, "
-        "delicate lines, rich colors, detailed rendering, "
-        "silk painting texture, court painting style, "
-        "exquisite details, traditional pigments, "
-        "masterpiece, best quality, highly detailed"
+        "Chinese gongbi painting, fine brushwork, rich colors, "
+        "silk texture, detailed, masterpiece"
     ),
     "青绿": (
-        "Chinese qinglv landscape painting, blue-green landscape style, "
-        "mineral pigments, azurite blue and malachite green, "
-        "Tang dynasty style, golden outlines, layered mountains, "
-        "decorative clouds, panoramic composition, "
-        "masterpiece, best quality, highly detailed"
+        "Chinese qinglv landscape, blue-green, mineral pigments, "
+        "Tang dynasty style, layered mountains, masterpiece"
     ),
 }
 

@@ -3,13 +3,51 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { PenTool, Image as ImageIcon } from 'lucide-react'
 import { InkButton } from './components/InkButton'
 import { CreationPage } from './pages/CreationPage'
+import { EditPage } from './pages/EditPage'
+import { GalleryPage } from './pages/GalleryPage'
 import './index.css'
 
 function App() {
-  const [view, setView] = useState('home'); // home | create | gallery
+  const [view, setView] = useState('home'); // home | create | edit | gallery
+  const [editContext, setEditContext] = useState(null); // { sessionId, version, imageUrl }
+
+  const handleGoToEdit = (context) => {
+    setEditContext(context);
+    setView('edit');
+  };
+
+  const handleBackFromEdit = () => {
+    setEditContext(null);
+    setView('home');
+  };
 
   if (view === 'create') {
-    return <CreationPage onBack={() => setView('home')} />;
+    return (
+      <CreationPage
+        onBack={() => setView('home')}
+        onEdit={handleGoToEdit}
+      />
+    );
+  }
+
+  if (view === 'edit' && editContext) {
+    return (
+      <EditPage
+        sessionId={editContext.sessionId}
+        initialVersion={editContext.version}
+        initialImageUrl={editContext.imageUrl}
+        onBack={handleBackFromEdit}
+      />
+    );
+  }
+
+  if (view === 'gallery') {
+    return (
+      <GalleryPage
+        onBack={() => setView('home')}
+        onEdit={handleGoToEdit}
+      />
+    );
   }
 
   return (
@@ -42,7 +80,7 @@ function App() {
             <InkButton onClick={() => setView('create')}>
               开始创作
             </InkButton>
-            <InkButton variant="secondary" onClick={() => alert("画廊功能即将开放")}>
+            <InkButton variant="secondary" onClick={() => setView('gallery')}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <ImageIcon size={18} /> 画廊
               </span>

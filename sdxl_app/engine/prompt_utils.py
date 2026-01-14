@@ -219,37 +219,46 @@ class PromptCompiler:
             if llm_raw and not llm_error:
                 llm_error = "LLM returned no usable fields; fallback applied."
 
-        # === 组装 Prompt (Sandwich Logic) ===
-        # 顺序: Subject > Action > Composition > Environment > Mood > Style > Elements
+        # === 组装 Prompt ===
+        # 新顺序: Style (最重要，放首位) > Subject > Action > Environment > Mood > Composition
         prompt_parts = []
         
+        # 1. 风格放在最前面，确保不会被截断
+        prompt_parts.append(layers["style"])
+        
+        # 2. 主体和动作（LLM 核心输出）
         if layers["subject"]:
             prompt_parts.append(layers["subject"])
         
         if layers["action"]:
             prompt_parts.append(layers["action"])
             
-        if layers["composition"]:
-            prompt_parts.append(layers["composition"])
-            
+        # 3. 环境和氛围
         if layers["environment"]:
             prompt_parts.append(layers["environment"])
             
         if layers["mood"]:
             prompt_parts.append(layers["mood"])
 
-        # Style 放在后面，防止冲淡主体
-        prompt_parts.append(layers["style"])
+        # 4. 构图放在后面（可被截断）
+        if layers["composition"]:
+            prompt_parts.append(layers["composition"])
         
-        # 补充 Elements (去重)
+        # 5. 补充 Elements (去重，限制数量)
         used_text = " ".join(prompt_parts).lower()
+        added_elements = 0
         for elem in elements:
-            if elem.lower() not in used_text:
+            if elem.lower() not in used_text and added_elements < 2:
                 prompt_parts.append(elem)
-
-        prompt_parts.append("best quality, masterpiece")
+                added_elements += 1
 
         final_prompt = ", ".join([p for p in prompt_parts if p])
+        
+        # Token 限制：CLIP 最大 77 tokens (~320 chars)，从末尾截断
+        MAX_PROMPT_CHARS = 320
+        if len(final_prompt) > MAX_PROMPT_CHARS:
+            final_prompt = final_prompt[:MAX_PROMPT_CHARS].rsplit(",", 1)[0]
+            logger.warning("Prompt truncated to %d chars to fit CLIP limit", len(final_prompt))
         
         # 构建负面提示
         neg = self.negative_prompt + self.poetry_negative_append

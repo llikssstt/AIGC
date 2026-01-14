@@ -61,6 +61,22 @@ class SessionManager:
     def exists(self, session_id: str) -> bool:
         return (self._session_dir(session_id) / "metadata.json").exists()
 
+    def list_all(self) -> list[SessionMeta]:
+        """List all sessions sorted by updated_at descending."""
+        sessions = []
+        for sdir in self.sessions_dir.iterdir():
+            if sdir.is_dir():
+                meta_path = sdir / "metadata.json"
+                if meta_path.exists():
+                    try:
+                        data = self._read_json(meta_path)
+                        sessions.append(_dict_to_meta(data))
+                    except Exception as e:
+                        logger.warning("Failed to read session %s: %s", sdir.name, e)
+        # Sort by updated_at descending (newest first)
+        sessions.sort(key=lambda m: m.updated_at, reverse=True)
+        return sessions
+
     def get_meta(self, session_id: str) -> SessionMeta:
         data = self._read_json(self._session_dir(session_id) / "metadata.json")
         return _dict_to_meta(data)

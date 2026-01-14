@@ -109,6 +109,25 @@ def create_app() -> FastAPI:
         meta = session_mgr.create()
         return {"session_id": meta.session_id, "available_styles": prompt_compiler.available_styles()}
 
+    @app.get("/sessions")
+    async def list_sessions():
+        """List all sessions for gallery view."""
+        sessions = session_mgr.list_all()
+        result = []
+        for s in sessions:
+            # Only include sessions that have at least one version
+            if s.total_versions > 0:
+                result.append({
+                    "session_id": s.session_id,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                    "style_preset": s.style_preset,
+                    "current_version": s.current_version,
+                    "total_versions": s.total_versions,
+                    "thumbnail_url": f"/session/{s.session_id}/thumbnail/{s.current_version}",
+                })
+        return result
+
     @app.post("/session/{session_id}/generate", response_model=GenerateResponse)
     async def generate(session_id: str, req: GenerateRequestModel):
         if not session_mgr.exists(session_id):

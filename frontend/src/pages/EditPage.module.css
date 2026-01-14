@@ -1,0 +1,278 @@
+.container {
+    min-height: 100vh;
+    padding: var(--sp-md);
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-md);
+    margin-bottom: var(--sp-lg);
+}
+
+.backBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    color: var(--c-ink-light);
+    font-size: 1rem;
+    border-radius: var(--r-sm);
+    transition: color 0.2s;
+}
+
+.backBtn:hover {
+    color: var(--c-ink);
+}
+
+.versionBadge {
+    background: var(--c-ink);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+}
+
+.historyBtn {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 1px solid var(--c-ink-faint);
+    border-radius: var(--r-sm);
+    color: var(--c-ink-light);
+    transition: all 0.2s;
+}
+
+.historyBtn:hover {
+    border-color: var(--c-seal);
+    color: var(--c-seal);
+}
+
+.main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-xl);
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .main {
+        grid-template-columns: 1fr;
+    }
+}
+
+.canvasSection,
+.controlSection {
+    background: rgba(255, 255, 255, 0.6);
+    padding: var(--sp-lg);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-ink);
+}
+
+.sectionTitle {
+    font-size: 1.25rem;
+    margin-bottom: var(--sp-md);
+    color: var(--c-ink);
+}
+
+.textarea {
+    width: 100%;
+    padding: 16px;
+    font-family: var(--font-serif);
+    font-size: 1.1rem;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: var(--r-md);
+    resize: none;
+    margin-bottom: var(--sp-md);
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.textarea:focus {
+    outline: none;
+    border-color: var(--c-seal);
+    box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.1);
+}
+
+.advancedToggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--c-ink-light);
+    border: 1px dashed rgba(0, 0, 0, 0.15);
+    border-radius: var(--r-sm);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    justify-content: center;
+}
+
+.advancedToggle:hover {
+    border-color: var(--c-seal);
+    color: var(--c-seal);
+}
+
+.advancedPanel {
+    background: rgba(255, 255, 255, 0.5);
+    padding: 1.25rem;
+    border-radius: var(--r-md);
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.paramRow {
+    margin-bottom: 1rem;
+}
+
+.paramRow:last-child {
+    margin-bottom: 0;
+}
+
+.paramRow label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--c-ink-light);
+}
+
+.numberInput {
+    width: 100px;
+    padding: 6px 10px;
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: var(--r-sm);
+    background: white;
+}
+
+.numberInput:focus {
+    outline: none;
+    border-color: var(--c-seal);
+}
+
+.slider {
+    width: 100%;
+    height: 6px;
+    accent-color: var(--c-seal);
+    cursor: pointer;
+}
+
+.paramHint {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--c-ink-faint);
+    margin-top: 4px;
+}
+
+.checkboxLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.checkboxLabel input[type="checkbox"] {
+    accent-color: var(--c-seal);
+    width: 16px;
+    height: 16px;
+}
+
+.error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #e74c3c;
+    margin-bottom: var(--sp-sm);
+    font-size: 0.9rem;
+}
+
+.loadingText {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* History Panel */
+.historyPanel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 280px;
+    height: 100vh;
+    background: var(--c-paper);
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+    padding: var(--sp-md);
+    overflow-y: auto;
+    z-index: 100;
+}
+
+.historyPanel h3 {
+    margin-bottom: var(--sp-md);
+    font-size: 1.1rem;
+}
+
+.historyList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+}
+
+.historyItem {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-sm);
+    padding: 8px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.historyItem:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.historyItem.active {
+    background: rgba(192, 57, 43, 0.1);
+    border: 1px solid var(--c-seal);
+}
+
+.thumbnail {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: var(--r-sm);
+}
+
+.historyInfo {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.historyVersion {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.historyType {
+    font-size: 0.75rem;
+    color: var(--c-ink-faint);
+    text-transform: uppercase;
+}
+
+.historyText {
+    font-size: 0.8rem;
+    color: var(--c-ink-light);
+}
+
+.revertIcon {
+    color: var(--c-ink-faint);
+}
