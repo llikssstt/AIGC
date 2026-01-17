@@ -12,8 +12,9 @@
     font-size: 1.5rem;
     line-height: 1.8;
     color: var(--c-ink);
-    background: rgba(255, 255, 255, 0.5);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(0, 0, 0, 0.2);
     border-radius: var(--r-md);
     outline: none;
     resize: none;
@@ -29,8 +30,10 @@
 }
 
 .input::placeholder {
-    color: var(--c-ink-faint);
+    color: var(--c-ink-light);
+    font-weight: 500;
     font-style: italic;
+    opacity: 0.8;
 }
 
 /* Decorativere corners */

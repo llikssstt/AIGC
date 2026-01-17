@@ -37,7 +37,9 @@
     display: block;
     margin-bottom: 0.5rem;
     font-size: 0.95rem;
-    color: var(--c-ink-light);
+    color: var(--c-ink);
+    font-weight: 700;
+    text-shadow: 0 1px 4px rgba(255, 255, 255, 0.8);
 }
 
 .select {
@@ -45,16 +47,18 @@
     padding: 12px 16px;
     font-family: var(--font-serif);
     font-size: 1.1rem;
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    font-weight: 600;
+    border: 1px solid rgba(0, 0, 0, 0.2);
     border-radius: var(--r-md);
-    background: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.85);
     color: var(--c-ink);
     cursor: pointer;
     appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%234a4a4a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 12px center;
     background-size: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .select:focus {
