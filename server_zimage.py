@@ -62,7 +62,7 @@ class EditResponse(BaseModel):
     prompt_card: dict
 
 
-def create_app(zimage_model_path: str, dtype: str = "bf16") -> FastAPI:
+def create_app(zimage_model_path: str) -> FastAPI:
     settings = get_settings()
 
     session_mgr = SessionManager(settings.storage.sessions_dir)
@@ -87,13 +87,13 @@ def create_app(zimage_model_path: str, dtype: str = "bf16") -> FastAPI:
     )
     mask_processor = MaskProcessor()
     
-    # 混合引擎: Z-Image + SDXL Inpaint
+    # 混合引擎: Z-Image-SDNQ + SDXL Inpaint
     engine = ZImageHybridEngine(
         zimage_path=zimage_model_path,
         inpaint_path=settings.models.inpaint_path,
         device=settings.runtime.device,
-        dtype=dtype,  # 支持 fp8, bf16, fp16, fp32
         enable_cpu_offload=settings.runtime.enable_cpu_offload,
+        use_torch_compile=True,
     )
 
     @asynccontextmanager
@@ -287,26 +287,19 @@ def create_app(zimage_model_path: str, dtype: str = "bf16") -> FastAPI:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Z-Image Hybrid Server")
+    parser = argparse.ArgumentParser(description="Z-Image-SDNQ Hybrid Server")
     parser.add_argument(
         "--zimage-model",
         type=str,
-        default="E:\AIGC\models\Z-Image-Turbo-FP8",
-        help="Path or HF model ID (default: E:\AIGC\models\Z-Image-Turbo-FP8)"
-    )
-    parser.add_argument(
-        "--dtype",
-        type=str,
-        choices=["fp8", "bf16", "fp16", "fp32"],
-        default="fp8",
-        help="Model precision: fp8 (需要RTX40系), bf16, fp16, fp32 (default: fp8)"
+        default="Disty0/Z-Image-Turbo-SDNQ-int8",
+        help="Path or HF model ID (default: Disty0/Z-Image-Turbo-SDNQ-int8)"
     )
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
     import uvicorn
-    app = create_app(args.zimage_model, args.dtype)
+    app = create_app(args.zimage_model)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

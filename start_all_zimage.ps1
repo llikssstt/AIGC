@@ -42,10 +42,10 @@ Start-ServiceWindow -Title "LLM Server (Port 8001)" `
 # Wait a bit for LLM to initialize (optional, but nice)
 Start-Sleep -Seconds 2
 
-# 2. Start Backend API
-Start-ServiceWindow -Title "SDXL Backend (Port 8000)" `
+# 2. Start Backend API (Z-Image-SDNQ + SDXL Inpaint)
+Start-ServiceWindow -Title "Z-Image Backend (Port 8000)" `
     -Command "python" `
-    -Arguments "server_zimage.py --zimage-model models/Z-Image-Turbo-FP8 --dtype fp8" `
+    -Arguments "server_zimage.py --zimage-model E:\AIGC\models\Z-Image-Turbo-SDNQ-int8" `
     -WorkDir $Root
 
 # 3. Start Frontend

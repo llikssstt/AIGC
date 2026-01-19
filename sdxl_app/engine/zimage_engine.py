@@ -1,6 +1,6 @@
 """
-Z-Image-Turbo + SDXL Inpaint Hybrid Engine
-文生图使用 Z-Image-Turbo (DiT)，编辑/Inpaint 使用 SDXL
+Z-Image-Turbo-SDNQ + SDXL Inpaint Hybrid Engine
+文生图使用 Z-Image-Turbo-SDNQ-int8 (INT8 量化)，编辑/Inpaint 使用 SDXL
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class EngineResult:
 class ZImageHybridEngine:
     """
     混合推理引擎：
-    - text2img: Z-Image-Turbo (DiT, 8步极速生成)
+    - text2img: Z-Image-Turbo-SDNQ-int8 (INT8 量化，显存友好)
     - inpaint: SDXL Inpainting (保持兼容性)
     """
 
@@ -55,8 +55,8 @@ class ZImageHybridEngine:
         zimage_path: str,
         inpaint_path: str,
         device: Literal["cuda", "cpu"] = "cuda",
-        dtype: Literal["bf16", "fp16", "fp32", "fp8"] = "bf16",
         enable_cpu_offload: bool = True,
+        use_torch_compile: bool = True,
     ):
         import torch
 
@@ -65,25 +65,10 @@ class ZImageHybridEngine:
         self.inpaint_path = inpaint_path
 
         self.device = device if (device == "cpu" or torch.cuda.is_available()) else "cpu"
-        self.dtype = dtype
-        
-        # 设置 torch dtype
-        if dtype == "fp8":
-            # FP8 需要 PyTorch 2.1+ 和 CUDA 12+
-            if hasattr(torch, 'float8_e4m3fn'):
-                self.torch_dtype = torch.float8_e4m3fn
-                logger.info("Using FP8 (float8_e4m3fn) precision")
-            else:
-                logger.warning("FP8 not supported, falling back to BF16")
-                self.torch_dtype = torch.bfloat16
-        elif dtype == "bf16":
-            self.torch_dtype = torch.bfloat16
-        elif dtype == "fp16":
-            self.torch_dtype = torch.float16
-        else:
-            self.torch_dtype = torch.float32
+        self.torch_dtype = torch.bfloat16  # SDNQ 使用 bfloat16
 
         self.enable_cpu_offload = enable_cpu_offload
+        self.use_torch_compile = use_torch_compile
 
         self._pipe_zimage = None
         self._pipe_inpaint = None
@@ -96,20 +81,19 @@ class ZImageHybridEngine:
         gc.collect()
 
     def generate(self, req: GenerateRequest) -> EngineResult:
-        """使用 Z-Image-Turbo 生成图像"""
+        """使用 Z-Image-Turbo-SDNQ-int8 生成图像"""
         self._ensure_zimage()
         generator, seed = self._make_generator(req.seed)
 
-        # Z-Image-Turbo 推荐参数: 8 步, cfg 3.5
-        steps = min(req.steps, 8) if req.steps <= 8 else req.steps
-        cfg = req.cfg if req.cfg > 0 else 3.5
+        # Z-Image-Turbo 推荐参数: 8-9 步, cfg 0.0 (classifier-free guidance off)
+        steps = req.steps if req.steps > 0 else 9
+        cfg = req.cfg if req.cfg > 0 else 0.0  # SDNQ 版本推荐 0.0
 
-        logger.info("Z-Image generate: %sx%s steps=%s cfg=%s seed=%s", 
+        logger.info("Z-Image-SDNQ generate: %sx%s steps=%s cfg=%s seed=%s", 
                     req.width, req.height, steps, cfg, seed)
         
         out = self._pipe_zimage(
             prompt=req.prompt,
-            negative_prompt=req.negative_prompt if req.negative_prompt else None,
             height=req.height,
             width=req.width,
             num_inference_steps=steps,
@@ -145,33 +129,47 @@ class ZImageHybridEngine:
 
     def _make_generator(self, seed: int):
         torch = self._torch
-        gen = torch.Generator(device=self.device)
         if seed is None or seed < 0:
-            seed = gen.seed()
-        gen.manual_seed(int(seed))
-        return gen, int(seed)
+            seed = torch.seed()
+        return torch.manual_seed(int(seed)), int(seed)
 
     def _ensure_zimage(self) -> None:
         if self._pipe_zimage is not None:
             return
 
-        from diffusers import DiffusionPipeline
+        import torch
+        import diffusers
+        from sdnq import SDNQConfig  # 注册 SDNQ 到 diffusers
+        from sdnq.common import use_torch_compile as triton_is_available
+        from sdnq.loader import apply_sdnq_options_to_model
 
-        logger.info("Loading Z-Image-Turbo pipeline from %s (dtype=%s)", self.zimage_path, self.dtype)
+        logger.info("Loading Z-Image-Turbo-SDNQ-int8 from %s", self.zimage_path)
         
-        # DiffusionPipeline 自动识别模型类型
-        # 支持本地路径或 HuggingFace 模型 ID (如 "T5B/Z-Image-Turbo-FP8")
-        self._pipe_zimage = DiffusionPipeline.from_pretrained(
+        # 加载 ZImagePipeline
+        self._pipe_zimage = diffusers.ZImagePipeline.from_pretrained(
             self.zimage_path,
-            torch_dtype=self.torch_dtype,
-            device_map="balanced" if self.device == "cuda" else None,
+            torch_dtype=torch.bfloat16,
         )
         
-        if self.enable_cpu_offload and self.device == "cuda":
-            try:
-                self._pipe_zimage.enable_model_cpu_offload()
-            except Exception as e:
-                logger.warning("CPU offload not enabled: %s", e)
+        # 启用 INT8 MatMul (GPU 加速)
+        if triton_is_available and torch.cuda.is_available():
+            logger.info("Enabling INT8 quantized matmul for transformer and text_encoder")
+            self._pipe_zimage.transformer = apply_sdnq_options_to_model(
+                self._pipe_zimage.transformer, use_quantized_matmul=True
+            )
+            self._pipe_zimage.text_encoder = apply_sdnq_options_to_model(
+                self._pipe_zimage.text_encoder, use_quantized_matmul=True
+            )
+            
+            # 可选: torch.compile 加速
+            if self.use_torch_compile:
+                logger.info("Applying torch.compile to transformer for faster inference")
+                self._pipe_zimage.transformer = torch.compile(self._pipe_zimage.transformer)
+        
+        # 启用 CPU offload 节省显存
+        if self.enable_cpu_offload:
+            self._pipe_zimage.enable_model_cpu_offload()
+            logger.info("CPU offload enabled for Z-Image pipeline")
 
     def _ensure_inpaint(self) -> None:
         if self._pipe_inpaint is not None:
