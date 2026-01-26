@@ -43,6 +43,9 @@ python scripts/download_models.py --clean
 ### LLM Model (Qwen)
 请下载 [Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) 或类似模型至 `models/` 目录。
 
+### Lora Models
+请下载 [Lora模型](https://huggingface.co/Hiwebsun0914/stable-diffusion-xl-base-1.0-unet-lora)至 `models/stable-diffusion-xl-base-1.0/`目录下。
+
 ## 🚀 Run Application
 
 ### 一键启动 (推荐)
@@ -90,7 +93,7 @@ npm run dev
 
 ```
 AIGC/
-├── frontend/                 # React 前端
+├── frontend/                # React 前端
 │   └── src/
 │       ├── pages/           # 页面组件 (Creation, Edit, Gallery)
 │       ├── components/      # UI 组件 (InkButton, MaskCanvas, etc.)
@@ -102,6 +105,7 @@ AIGC/
 ├── models/                  # 模型文件 (SDXL, Qwen)
 ├── storage/sessions/        # 生成的图片和元数据
 ├── start_all.ps1            # 一键启动脚本
+├── scripts                  # LoRA训练代码
 └── server.py                # 后端入口
 ```
 
@@ -111,3 +115,88 @@ AIGC/
 - **CUDA OOM**: 显存不足，尝试使用更小的 LLM 或开启 CPU offload
 - **Prompt Truncated**: 正常现象，CLIP 限制 77 tokens，系统会自动截断
 - **画廊为空**: 需要先创作作品才会显示在画廊中
+
+## 附：LoRA训练说明
+
+项目默认提供一份 LoRA（diffusers 格式）在：
+- `models/stable-diffusion-xl-base-1.0/unet_lora/`
+
+后端读取环境变量（前缀为 `SDXL_`）：
+- `SDXL_MODELS_LORA_PATH`：LoRA 路径（**目录**或单个 `.safetensors`）
+- `SDXL_MODELS_LORA_SCALE`：强度（常用 `0.5 ~ 1.0`）
+- `SDXL_MODELS_LORA_FUSE`：是否 fuse（`True/False`）
+
+示例（PowerShell）：
+
+```powershell
+$env:SDXL_MODELS_LORA_PATH = "models/stable-diffusion-xl-base-1.0/unet_lora"
+$env:SDXL_MODELS_LORA_SCALE = "0.8"
+$env:SDXL_MODELS_LORA_FUSE = "True"
+python -m sdxl_app.api.server
+```
+
+关闭 LoRA：不要设置 `SDXL_MODELS_LORA_PATH`（或在 `start_all.ps1` 里移除该环境变量）。
+
+
+核心训练脚本：`scripts/lora_finetune.py`
+
+它做三件事：
+1) 扫描分类后的数据集；
+2) 生成/同步图片 captions（存到 `LoRA/captions.csv`）；
+3) 训练并导出 SDXL UNet LoRA（diffusers 格式 `unet_lora/`）。
+
+
+训练脚本要求数据集结构如下（风格目录名必须一致）：
+
+```
+Chinese-Landscape-Painting-Dataset/
+  sorted_by_style/
+    水墨/
+    工笔/
+    青绿/
+```
+
+请前往 [国风数据集](https://huggingface.co/datasets/Hiwebsun0914/Chinese-Painting) 下载`Chinese-Landscape-Painting-Dataset/sorted_by_style`到根目录
+
+
+在准备数据标签时，先启动 Qwen 服务（默认端口 8001）：
+
+```bash
+python -m sdxl_app.engine.simple_llm_server --model "<QWEN_PATH>" --port 8001
+```
+
+生成/刷新标签（只更新 CSV，不训练）：
+
+```powershell
+python scripts/lora_finetune.py `
+  --dataset ".\\Chinese-Landscape-Painting-Dataset\\sorted_by_style" `
+  --caption-table "LoRA\\captions.csv" `
+  --caption-only
+```
+
+`LoRA/captions.csv` 字段为：
+- `style`：水墨/工笔/青绿
+- `relative_path`：相对 `sorted_by_style` 的路径
+- `caption`：训练用描述文本
+- `last_updated`：时间戳
+
+训练（LoRA fine-tune）
+
+```powershell
+python scripts/lora_finetune.py `
+  --dataset ".\\Chinese-Landscape-Painting-Dataset\\sorted_by_style" `
+  --caption-table "LoRA\\captions.csv" `
+  --lora-dir "LoRA" `
+  --pretrained-model "models\\stable-diffusion-xl-base-1.0" `
+  --checkpoint-name "style_adapter" `
+  --batch-size 4 `
+  --epochs 1 `
+  --resolution 512 `
+  --learning-rate 2e-4 `
+  --save-steps 100 `
+  --fp16 `
+  --num-workers 0
+```
+
+输出位置：
+- `LoRA/style_adapter_stepXXXX/unet_lora/`
