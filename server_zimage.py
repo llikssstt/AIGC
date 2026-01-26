@@ -15,6 +15,7 @@ import argparse
 import io
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -66,6 +67,17 @@ def create_app(zimage_model_path: str) -> FastAPI:
     settings = get_settings()
 
     session_mgr = SessionManager(settings.storage.sessions_dir)
+    if settings.models.lora_path:
+        raw = Path(settings.models.lora_path)
+        lora_path = raw if raw.is_absolute() else (settings.project_root / raw).resolve()
+        logger.info(
+            "LoRA enabled for SDXL inpaint: path=%s scale=%s fuse=%s",
+            str(lora_path),
+            settings.models.lora_scale,
+            settings.models.lora_fuse,
+        )
+        if not lora_path.exists():
+            raise RuntimeError(f"LoRA path not found: {lora_path}")
     
     # LLM Service
     llm_service = None
@@ -91,6 +103,9 @@ def create_app(zimage_model_path: str) -> FastAPI:
     engine = ZImageHybridEngine(
         zimage_path=zimage_model_path,
         inpaint_path=settings.models.inpaint_path,
+        lora_path=settings.models.lora_path,
+        lora_scale=settings.models.lora_scale,
+        lora_fuse=settings.models.lora_fuse,
         device=settings.runtime.device,
         enable_cpu_offload=settings.runtime.enable_cpu_offload,
         use_torch_compile=True,
@@ -99,6 +114,7 @@ def create_app(zimage_model_path: str) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logger.info("Z-Image Hybrid Server starting...")
+        logger.info("  - LogLevel: %s", settings.log_level)
         logger.info("  - Text2Img: Z-Image-Turbo (%s)", zimage_model_path)
         logger.info("  - Inpaint: SDXL (%s)", settings.models.inpaint_path)
         yield

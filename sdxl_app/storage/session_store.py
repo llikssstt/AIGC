@@ -205,7 +205,9 @@ class SessionManager:
         meta = self.get_meta(session_id)
         if meta.current_version < 0:
             return None
-        return Image.open(self.image_path(session_id, meta.current_version))
+        path = self.image_path(session_id, meta.current_version)
+        with Image.open(path) as im:
+            return im.copy()
 
     def _session_dir(self, session_id: str) -> Path:
         return self.sessions_dir / session_id

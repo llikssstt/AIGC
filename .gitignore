@@ -16,6 +16,7 @@ venv/
 *.onnx
 *.h5
 models/
+Chinese-Landscape-Painting-Dataset/
 
 # Cached files
 .cache/

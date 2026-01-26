@@ -4,7 +4,8 @@ function Start-ServiceWindow {
         [string]$Title,
         [string]$Command,
         [string]$Arguments,
-        [string]$WorkDir = "."
+        [string]$WorkDir = ".",
+        [hashtable]$Env = @{}
     )
     
     Write-Host "Starting $Title..." -ForegroundColor Cyan
@@ -16,14 +17,33 @@ function Start-ServiceWindow {
         # or use 'python' directly if we are sure it's in path.
         
         # Using Start-Process to open a new window
+        $envCmd = ""
+        if ($Env -and $Env.Count -gt 0) {
+            $envCmd = ($Env.GetEnumerator() | ForEach-Object { "set $($_.Key)=$($_.Value)" }) -join " && "
+        }
+
+        $cmdLine = "title $Title && cd /d ""$WorkDir"""
+        if ($envCmd) { $cmdLine = "$cmdLine && $envCmd" }
+        $cmdLine = "$cmdLine && $Command $Arguments"
+
         Start-Process -FilePath "cmd.exe" `
-            -ArgumentList "/k", "title $Title && cd /d $WorkDir && $Command $Arguments" `
+            -ArgumentList "/k", $cmdLine `
             -WorkingDirectory $WorkDir `
             -WindowStyle Normal
     } else {
         Write-Warning "Conda environment not detected. Attempting to run with system path..."
+
+        $envCmd = ""
+        if ($Env -and $Env.Count -gt 0) {
+            $envCmd = ($Env.GetEnumerator() | ForEach-Object { "set $($_.Key)=$($_.Value)" }) -join " && "
+        }
+
+        $cmdLine = "title $Title && cd /d ""$WorkDir"""
+        if ($envCmd) { $cmdLine = "$cmdLine && $envCmd" }
+        $cmdLine = "$cmdLine && $Command $Arguments"
+
         Start-Process -FilePath "cmd.exe" `
-            -ArgumentList "/k", "title $Title && cd /d $WorkDir && $Command $Arguments" `
+            -ArgumentList "/k", $cmdLine `
             -WorkingDirectory $WorkDir `
             -WindowStyle Normal
     }
@@ -46,7 +66,13 @@ Start-Sleep -Seconds 2
 Start-ServiceWindow -Title "SDXL Backend (Port 8000)" `
     -Command "python" `
     -Arguments "-m sdxl_app.api.server" `
-    -WorkDir $Root
+    -WorkDir $Root `
+    -Env @{
+        "SDXL_LOG_LEVEL" = "DEBUG"
+        "SDXL_MODELS_LORA_PATH" = "$Root\\models\\stable-diffusion-xl-base-1.0\\unet_lora"
+        "SDXL_MODELS_LORA_SCALE" = "0.8"
+        "SDXL_MODELS_LORA_FUSE" = "True"
+    }
 
 # 3. Start Frontend
 Start-ServiceWindow -Title "Frontend UI (Port 5173)" `
