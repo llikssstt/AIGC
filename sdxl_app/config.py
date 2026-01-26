@@ -55,6 +55,9 @@ class ModelSettings(BaseModel):
     base_path: str = "models/stable-diffusion-xl-base-1.0"
     inpaint_path: str = "models/stable-diffusion-xl-1.0-inpainting-0.1"
     refiner_path: Optional[str] = None
+    lora_path: Optional[str] = None
+    lora_scale: float = 1.0
+    lora_fuse: bool = True
 
 
 class RuntimeSettings(BaseModel):
@@ -157,7 +160,7 @@ class Settings(BaseModel):
 
 def configure_logging(settings: Settings) -> None:
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True)
 
 
 _settings: Optional[Settings] = None
@@ -205,6 +208,9 @@ def _apply_env_overrides(data: Dict[str, Any], env_prefix: str) -> None:
         "MODELS_BASE_PATH": ("models", "base_path"),
         "MODELS_INPAINT_PATH": ("models", "inpaint_path"),
         "MODELS_REFINER_PATH": ("models", "refiner_path"),
+        "MODELS_LORA_PATH": ("models", "lora_path"),
+        "MODELS_LORA_SCALE": ("models", "lora_scale"),
+        "MODELS_LORA_FUSE": ("models", "lora_fuse"),
         "RUNTIME_DEVICE": ("runtime", "device"),
         "RUNTIME_DTYPE": ("runtime", "dtype"),
         "RUNTIME_ENABLE_XFORMERS": ("runtime", "enable_xformers"),
@@ -223,4 +229,7 @@ def _apply_env_overrides(data: Dict[str, Any], env_prefix: str) -> None:
         name = f"{env_prefix}{suffix}"
         if name not in os.environ:
             continue
-        _deep_set(data, path, os.environ[name])
+        raw = os.environ[name]
+        if isinstance(raw, str):
+            raw = raw.strip()
+        _deep_set(data, path, raw)

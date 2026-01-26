@@ -17,19 +17,25 @@ function Start-ServiceWindow {
         
         # Using Start-Process to open a new window
         Start-Process -FilePath "cmd.exe" `
-            -ArgumentList "/k", "title $Title && cd /d $WorkDir && $Command $Arguments" `
+            -ArgumentList "/k", "title $Title && cd /d ""$WorkDir"" && $Command $Arguments" `
             -WorkingDirectory $WorkDir `
             -WindowStyle Normal
     } else {
         Write-Warning "Conda environment not detected. Attempting to run with system path..."
         Start-Process -FilePath "cmd.exe" `
-            -ArgumentList "/k", "title $Title && cd /d $WorkDir && $Command $Arguments" `
+            -ArgumentList "/k", "title $Title && cd /d ""$WorkDir"" && $Command $Arguments" `
             -WorkingDirectory $WorkDir `
             -WindowStyle Normal
     }
 }
 
 $Root = Get-Location
+
+# Enable debug logs + apply SDXL LoRA by default for backend services.
+$env:SDXL_LOG_LEVEL = "DEBUG"
+$env:SDXL_MODELS_LORA_PATH = "$Root\\models\\stable-diffusion-xl-base-1.0\\unet_lora"
+$env:SDXL_MODELS_LORA_SCALE = "0.8"
+$env:SDXL_MODELS_LORA_FUSE = "True"
 
 # 1. Start LLM Server
 # Note: Adjust the model path if yours is different!
@@ -45,7 +51,7 @@ Start-Sleep -Seconds 2
 # 2. Start Backend API (Z-Image-SDNQ + SDXL Inpaint)
 Start-ServiceWindow -Title "Z-Image Backend (Port 8000)" `
     -Command "python" `
-    -Arguments "server_zimage.py --zimage-model E:\AIGC\models\Z-Image-Turbo-SDNQ-int8" `
+    -Arguments "server_zimage.py --zimage-model D:\大三上\AIGC\models\Z-Image-Turbo-SDNQ-int8" `
     -WorkDir $Root
 
 # 3. Start Frontend

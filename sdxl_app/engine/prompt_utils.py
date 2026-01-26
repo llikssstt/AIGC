@@ -91,40 +91,6 @@ class PromptCompiler:
         if self.poetry_enabled and self._looks_like_poetry(scene_text):
             return self.compile_poetry(style_preset=style_preset, poem_text=scene_text)
 
-    """纯 LLM 驱动的 Prompt 编译器"""
-
-    def __init__(
-        self,
-        style_presets: Dict[str, str],
-        negative_prompt: str,
-        inpaint_negative_append: str,
-        *,
-        poetry_enabled: bool = True,
-        poetry_negative_append: str = ", calligraphy, chinese characters, letters, words, subtitles",
-        llm_service: Optional["LLMService"] = None,
-    ):
-        self.style_presets = dict(style_presets)
-        self.negative_prompt = negative_prompt
-        self.inpaint_negative_append = inpaint_negative_append
-        self.poetry_enabled = poetry_enabled
-        self.poetry_negative_append = poetry_negative_append
-        self.llm_service = llm_service
-
-    def available_styles(self) -> list[str]:
-        return sorted(self.style_presets.keys())
-
-    def compile_generation(self, style_preset: str, scene_text: str) -> PromptBundle:
-        if style_preset not in self.style_presets:
-            raise ValueError(f"Unknown style_preset: {style_preset}")
-
-        global_prompt = self.style_presets[style_preset].strip()
-        scene_text = (scene_text or "").strip()
-
-        # 检测是否为古诗/中文输入
-        if self.poetry_enabled and self._looks_like_poetry(scene_text):
-            return self.compile_poetry(style_preset=style_preset, poem_text=scene_text)
-
-        # 普通英文输入
         final_prompt = f"{global_prompt}, {scene_text}" if scene_text else global_prompt
         neg = self.negative_prompt
         return PromptBundle(global_prompt=global_prompt, final_prompt=final_prompt, negative_prompt=neg, meta={})
@@ -160,42 +126,56 @@ class PromptCompiler:
             try:
                 interpretation = self.llm_service.interpret_poetry(poem_raw, style_preset)
                 if interpretation:
-                    llm_raw = interpretation.raw_response
-                    interpretation_subject_description = interpretation.subject_description or ""
-                    if interpretation_subject_description and interpretation_subject_description.lower() != "none":
+                    llm_raw = getattr(interpretation, "raw_response", "") or ""
+
+                    subject_desc = getattr(interpretation, "subject_description", "") or ""
+                    action_desc = getattr(interpretation, "action_description", "") or ""
+                    env_desc = getattr(interpretation, "environment_description", "") or ""
+                    comp_desc = getattr(interpretation, "composition_description", "") or ""
+                    mood_desc = getattr(interpretation, "mood_description", "") or ""
+
+                    scene_desc = getattr(interpretation, "scene_description", "") or ""
+                    mood_simple = getattr(interpretation, "mood", "") or ""
+                    visual_elements = getattr(interpretation, "visual_elements", None) or []
+
+                    interpretation_subject_description = subject_desc
+
+                    salvage = ""
+                    if not env_desc and not scene_desc and llm_raw:
+                        salvage = self._salvage_scene_from_raw(llm_raw)
+
+                    if subject_desc and subject_desc.lower() not in ("none", "no humans"):
+                        layers["subject"] = f"({subject_desc}:1.3)"
                         llm_has_content = True
-                    
-                    # 1. Subject Layer (最为重要，加权)
-                    if interpretation_subject_description and interpretation_subject_description.lower() not in ("none", "no humans"):
-                        layers["subject"] = f"({interpretation_subject_description}:1.3)"
+                    elif subject_desc and subject_desc.lower() == "no humans":
+                        layers["subject"] = ""
+
+                    if action_desc and action_desc.lower() != "none":
+                        layers["action"] = action_desc
+                        llm_has_content = True
+
+                    env_final = env_desc or scene_desc or salvage
+                    if env_final:
+                        layers["environment"] = env_final
+                        llm_has_content = True
+
+                    if comp_desc:
+                        layers["composition"] = comp_desc
+
+                    mood_final = mood_desc or mood_simple
+                    if mood_final:
+                        layers["mood"] = mood_final
+                        llm_has_content = True
+
+                    if isinstance(visual_elements, (list, tuple)):
+                        elements = list(visual_elements)
                     else:
-                        layers["subject"] = "" # 明确无人
-
-                    # 2. Action Layer
-                    if interpretation.action_description and interpretation.action_description.lower() != "none":
-                        layers["action"] = interpretation.action_description
-                        llm_has_content = True
-
-                    # 3. Environment Layer
-                    if interpretation.environment_description:
-                        layers["environment"] = interpretation.environment_description
-                        llm_has_content = True
-
-                    # 4. Composition Layer
-                    if interpretation.composition_description:
-                        layers["composition"] = interpretation.composition_description
-
-                    # 5. Mood Layer
-                    if interpretation.mood_description:
-                        layers["mood"] = interpretation.mood_description
-                        llm_has_content = True
-
-                    # 6. Elements
-                    elements = interpretation.visual_elements
+                        elements = []
                     if elements:
                         llm_has_content = True
 
-                    logger.info("LLM 古诗分层理解成功: %s", layers)
+                    if llm_has_content:
+                        logger.info("LLM 古诗分层理解成功: %s", layers)
             except Exception as e:
                 llm_error = str(e)
                 logger.warning("LLM 古诗理解失败: %s", e)
@@ -225,6 +205,9 @@ class PromptCompiler:
         
         # 1. 风格放在最前面，确保不会被截断
         prompt_parts.append(layers["style"])
+
+        if self.poetry_preamble:
+            prompt_parts.append(self.poetry_preamble)
         
         # 2. 主体和动作（LLM 核心输出）
         if layers["subject"]:
@@ -329,8 +312,12 @@ class PromptCompiler:
         return out
 
     def _salvage_scene_from_raw(self, raw_response: str) -> str:
-        # Deprecated: No longer needed with structured JSON
-        return ""
+        raw = (raw_response or "").strip()
+        if not raw:
+            return ""
+        raw = re.sub(r"```.*?```", "", raw, flags=re.S).strip()
+        raw = raw.replace("\n", " ").strip()
+        return raw
 
     def compile_edit(self, global_prompt: str, edit_text: str) -> PromptBundle:
         """使用 LLM 翻译编辑指令"""

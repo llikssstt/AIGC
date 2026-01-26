@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -56,6 +57,36 @@ class ImportResponse(BaseModel):
 def create_app() -> FastAPI:
     settings = get_settings()
 
+    logger.debug("Runtime: device=%s dtype=%s", settings.runtime.device, settings.runtime.dtype)
+    logger.info(
+        "Models: base=%s inpaint=%s refiner=%s",
+        settings.models.base_path,
+        settings.models.inpaint_path,
+        settings.models.refiner_path,
+    )
+
+    if settings.models.lora_path:
+        raw = Path(settings.models.lora_path)
+        lora_path = raw if raw.is_absolute() else (settings.project_root / raw).resolve()
+        logger.info(
+            "LoRA: path=%s scale=%s fuse=%s",
+            str(lora_path),
+            settings.models.lora_scale,
+            settings.models.lora_fuse,
+        )
+        if not lora_path.exists():
+            raise RuntimeError(f"LoRA path not found: {lora_path}")
+        if lora_path.is_dir():
+            weight = lora_path / "pytorch_lora_weights.safetensors"
+            if weight.exists():
+                logger.info("LoRA weights: %s (%.1f MB)", str(weight), weight.stat().st_size / (1024 * 1024))
+            else:
+                candidates = list(lora_path.glob("*.safetensors"))
+                if candidates:
+                    logger.info("LoRA weights candidates: %s", ", ".join(p.name for p in candidates))
+                else:
+                    logger.warning("No .safetensors found under LoRA dir: %s", str(lora_path))
+
     session_mgr = SessionManager(settings.storage.sessions_dir)
     llm_service = None
     if settings.prompts.llm_enabled:
@@ -79,6 +110,9 @@ def create_app() -> FastAPI:
         base_path=settings.models.base_path,
         inpaint_path=settings.models.inpaint_path,
         refiner_path=settings.models.refiner_path,
+        lora_path=settings.models.lora_path,
+        lora_scale=settings.models.lora_scale,
+        lora_fuse=settings.models.lora_fuse,
         device=settings.runtime.device,
         dtype=settings.runtime.dtype,
         enable_xformers=settings.runtime.enable_xformers,
@@ -89,8 +123,15 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        logger.info(
+            "Server starting (log_level=%s): http://%s:%s",
+            settings.log_level,
+            settings.server.host,
+            settings.server.port,
+        )
         yield
         engine.unload()
+        logger.info("Server shutdown complete")
 
     app = FastAPI(title="SDXL Local API", lifespan=lifespan)
     
@@ -311,7 +352,7 @@ def main() -> None:
     import uvicorn
 
     settings = get_settings()
-    uvicorn.run(app, host=settings.server.host, port=settings.server.port)
+    uvicorn.run(app, host=settings.server.host, port=settings.server.port, log_level=str(settings.log_level).lower())
 
 
 if __name__ == "__main__":
